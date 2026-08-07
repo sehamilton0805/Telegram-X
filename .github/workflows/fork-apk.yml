@@ -32,6 +32,25 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y git-lfs unzip sed wget make clang yasm nasm
 
+      - name: Native libraries cache
+        id: native-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            app/jni/third_party/ffmpeg/build
+            app/jni/third_party/libvpx/build
+            app/.cxx
+          key: natives-latest-arm64-${{ hashFiles('version.properties') }}
+
+      - name: Gradle cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('**/*.gradle.kts', 'gradle/**') }}
+          restore-keys: gradle-
+
       - name: Prepare signing config
         env:
           KEYSTORE_B64: ${{ secrets.SIGNING_KEYSTORE_B64 }}
@@ -56,10 +75,23 @@ jobs:
           APP_NAME: Telegram X RG
           APP_DOWNLOAD_URL: https://github.com/${{ github.repository }}/releases
           APP_SOURCES_URL: https://github.com/${{ github.repository }}
+          NATIVE_CACHE_HIT: ${{ steps.native-cache.outputs.cache-hit }}
         run: |
           export TERM=xterm
           export KEYSTORE_FILE="$RUNNER_TEMP/signing/keystore.properties"
-          bash scripts/setup.sh
+          # Trim the native build matrix to the single shipped variant (latest + arm64-v8a)
+          sed -i 's/^for ABI in arm64-v8a x86_64 armeabi-v7a x86 ; do$/for ABI in arm64-v8a ; do/' scripts/private/build-ffmpeg-impl.sh
+          sed -i 's/^for ABI in arm64-v8a armeabi-v7a x86_64 x86 ; do$/for ABI in arm64-v8a ; do/' scripts/private/build-vpx-impl.sh
+          sed -i 's/for FLAVOR in \$FLAVORS; do/for FLAVOR in latest; do/' scripts/private/build-ffmpeg-impl.sh scripts/private/build-vpx-impl.sh
+          # Same steps as scripts/setup.sh, with vpx/ffmpeg skipped on cache hit
+          source "$(pwd)/scripts/setup-sdk.sh"
+          patch-opus-impl.sh
+          patch-androidx-media-impl.sh
+          if [[ "$NATIVE_CACHE_HIT" != "true" ]]; then
+            build-vpx-impl.sh
+            build-ffmpeg-impl.sh
+          fi
+          setup-properties.sh
           echo "app.experimental=true" >> local.properties
 
       - name: Build APK
