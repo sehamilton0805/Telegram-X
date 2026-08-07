@@ -1,0 +1,73 @@
+name: Fork APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ fork ]
+
+concurrency:
+  group: fork-apk
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build latestArm64Release
+    runs-on: ubuntu-22.04
+    timeout-minutes: 350
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          lfs: true
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git-lfs unzip sed wget make clang yasm nasm
+
+      - name: Prepare signing config
+        env:
+          KEYSTORE_B64: ${{ secrets.SIGNING_KEYSTORE_B64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.SIGNING_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/signing"
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/signing/tgx-fork.p12"
+          {
+            echo "keystore.file=$RUNNER_TEMP/signing/tgx-fork.p12"
+            echo "keystore.password=$KEYSTORE_PASSWORD"
+            echo "key.alias=$KEY_ALIAS"
+            echo "key.password=$KEY_PASSWORD"
+          } > "$RUNNER_TEMP/signing/keystore.properties"
+
+      - name: Configure project and build native dependencies
+        env:
+          TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
+          TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
+          APP_ID: dev.redgreen.tgx
+          APP_NAME: Telegram X RG
+          APP_DOWNLOAD_URL: https://github.com/${{ github.repository }}/releases
+          APP_SOURCES_URL: https://github.com/${{ github.repository }}
+        run: |
+          export KEYSTORE_FILE="$RUNNER_TEMP/signing/keystore.properties"
+          bash scripts/setup.sh
+          echo "app.experimental=true" >> local.properties
+
+      - name: Build APK
+        run: ./gradlew :app:assembleLatestArm64Release --stacktrace --no-daemon
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: tgx-fork-arm64
+          path: app/build/outputs/apk/**/*.apk
+          if-no-files-found: error
+          retention-days: 30
