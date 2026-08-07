@@ -57,6 +57,7 @@ jobs:
           APP_DOWNLOAD_URL: https://github.com/${{ github.repository }}/releases
           APP_SOURCES_URL: https://github.com/${{ github.repository }}
         run: |
+          export TERM=dumb
           export KEYSTORE_FILE="$RUNNER_TEMP/signing/keystore.properties"
           bash scripts/setup.sh
           echo "app.experimental=true" >> local.properties
