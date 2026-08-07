@@ -159,12 +159,16 @@ public class CommandKeyboardLayout extends ViewGroup implements ViewTreeObserver
       themeProvider.addThemeInvalidateListener(text);
     }
     text.setGravity(Gravity.CENTER);
-    text.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 16f);
     text.setMaxLines(2);
     text.setEllipsize(TextUtils.TruncateAt.END);
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
       text.setBreakStrategy(Layout.BREAK_STRATEGY_SIMPLE);
       text.setHyphenationFrequency(Layout.HYPHENATION_FREQUENCY_NONE);
+    }
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+      text.setAutoSizeTextTypeUniformWithConfiguration(11, 16, 1, TypedValue.COMPLEX_UNIT_DIP);
+    } else {
+      text.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 16f);
     }
     text.setOnClickListener(this);
     //noinspection ResourceType
