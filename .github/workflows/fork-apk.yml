@@ -83,15 +83,12 @@ jobs:
           sed -i 's/^for ABI in arm64-v8a x86_64 armeabi-v7a x86 ; do$/for ABI in arm64-v8a ; do/' scripts/private/build-ffmpeg-impl.sh
           sed -i 's/^for ABI in arm64-v8a armeabi-v7a x86_64 x86 ; do$/for ABI in arm64-v8a ; do/' scripts/private/build-vpx-impl.sh
           sed -i 's/for FLAVOR in \$FLAVORS; do/for FLAVOR in latest; do/' scripts/private/build-ffmpeg-impl.sh scripts/private/build-vpx-impl.sh
-          # Same steps as scripts/setup.sh, with vpx/ffmpeg skipped on cache hit
-          source "$(pwd)/scripts/setup-sdk.sh"
-          patch-opus-impl.sh
-          patch-androidx-media-impl.sh
-          if [[ "$NATIVE_CACHE_HIT" != "true" ]]; then
-            build-vpx-impl.sh
-            build-ffmpeg-impl.sh
+          # Skip vpx/ffmpeg entirely when restored from cache
+          if [[ "$NATIVE_CACHE_HIT" == "true" ]]; then
+            sed -i 's/^build-vpx-impl.sh$/echo "libvpx restored from cache"/' scripts/setup.sh
+            sed -i 's/^build-ffmpeg-impl.sh$/echo "ffmpeg restored from cache"/' scripts/setup.sh
           fi
-          setup-properties.sh
+          bash scripts/setup.sh
           echo "app.experimental=true" >> local.properties
 
       - name: Build APK
