@@ -483,6 +483,7 @@ public class TGInlineKeyboard {
       this.dirtyRect = new Rect();
       String text = uppercase(cleanButtonText(button.text));
       this.needFakeBold = Text.needFakeBold(text);
+      this.blankLabel = isBlankLabel(text);
       this.iconCustomEmojiId = button.iconCustomEmojiId;
       if (button.iconCustomEmojiId != 0) {
         this.iconText = buildIconText(button.iconCustomEmojiId, ICON_TEXT_SIZE_DP);
@@ -503,14 +504,14 @@ public class TGInlineKeyboard {
     }
 
     int getMinContentWidth () {
-      return wrapper.getMaxLineWidth() + getIconFootprint();
+      return (blankLabel ? 0 : wrapper.getMaxLineWidth()) + getIconFootprint();
     }
 
     private int getIconFootprint () {
       if (iconText == null) {
         return 0;
       }
-      int spacing = wrapper == null || !wrapper.getText().isEmpty() ? Screen.dp(ICON_SPACING_DP) : 0;
+      int spacing = blankLabel ? 0 : Screen.dp(ICON_SPACING_DP);
       int cornerInset = Lang.rtl() && hasCornerIndicator() ? Screen.dp(20f) : 0;
       return Screen.dp(ICON_EDGE_PADDING_DP) + iconText.getWidth() + spacing + cornerInset;
     }
@@ -549,6 +550,11 @@ public class TGInlineKeyboard {
 
     private int applyIconAndTextFit (String text, int maxWidth) {
       this.lastFitMaxWidth = maxWidth;
+      if (blankLabel) {
+        // Invisible placeholders measure as fake words and must not shrink the icon
+        this.textSizeDp = BUTTON_TEXT_SIZE_DP;
+        return Math.max(0, maxWidth - getIconFootprint());
+      }
       int textMaxWidth = Math.max(0, maxWidth - getIconFootprint());
       float fit = fitTextSizeDp(text, textMaxWidth);
       if (fit < 0 && iconText != null && iconSizeDp != BUTTON_TEXT_SIZE_DP) {
@@ -673,6 +679,7 @@ public class TGInlineKeyboard {
       this.styleColorId = resolveStyleColorId(button.style);
       String text = uppercase(cleanButtonText(button.text));
       final boolean reset = !wrapper.getText().equals(text);
+      this.blankLabel = isBlankLabel(text);
       if (this.iconCustomEmojiId != button.iconCustomEmojiId) {
         this.iconCustomEmojiId = button.iconCustomEmojiId;
         if (iconText != null) {
@@ -734,6 +741,20 @@ public class TGInlineKeyboard {
     private static final float ICON_TEXT_SIZE_DP = 28f;
     private static final float ICON_EDGE_PADDING_DP = 4f;
     private float iconSizeDp = ICON_TEXT_SIZE_DP;
+    private boolean blankLabel;
+
+    // Bots must send non-empty button text, so icon-only buttons carry an
+    // invisible placeholder (braille blank, fillers, zero-width chars)
+    private static boolean isBlankLabel (String text) {
+      for (int i = 0; i < text.length(); ) {
+        int c = text.codePointAt(i);
+        if (!Character.isWhitespace(c) && c != 0x2800 && c != 0x3164 && c != 0x00A0 && c != 0x200B && c != 0x200C && c != 0x200D && c != 0xFEFF) {
+          return false;
+        }
+        i += Character.charCount(c);
+      }
+      return true;
+    }
 
     public void draw (MessageView view, Canvas c, int cx, int cy, int buttonWidth, int buttonHeight, int strokePadding, RectF rounder, int row, int column) {
       final int right = cx + buttonWidth;
@@ -835,19 +856,20 @@ public class TGInlineKeyboard {
         int iconHeight = iconText.getHeight();
         int contentWidth = Math.min(wrapper.getMaxLineWidth(), wrapper.getWidth());
         int iconX;
-        if (contentWidth <= 0) {
+        if (contentWidth <= 0 || blankLabel) {
           iconX = cx + (buttonWidth - iconWidth) / 2;
         } else {
           int zoneWidth = Math.max(0, buttonWidth - getButtonPadding() * 2 - getIconFootprint());
+          // The label hugs the icon instead of centering in the remaining zone
           if (Lang.rtl()) {
             iconX = right - Screen.dp(ICON_EDGE_PADDING_DP) - iconWidth;
             if (hasCornerIndicator()) {
               iconX -= Screen.dp(20f);
             }
-            textX = cx + getButtonPadding() + (zoneWidth - wrapper.getWidth()) / 2;
+            textX = Math.max(cx + getButtonPadding() + zoneWidth, cx + getButtonPadding() + contentWidth) - (wrapper.getWidth() + contentWidth) / 2;
           } else {
             iconX = cx + Screen.dp(ICON_EDGE_PADDING_DP);
-            textX = cx + getButtonPadding() + getIconFootprint() + (zoneWidth - wrapper.getWidth()) / 2;
+            textX = Math.min(cx + getButtonPadding() + getIconFootprint(), right - getButtonPadding() - contentWidth) - (wrapper.getWidth() - contentWidth) / 2;
           }
         }
         this.iconTextColor = textColor;
