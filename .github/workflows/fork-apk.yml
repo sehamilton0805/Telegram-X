@@ -53,6 +53,14 @@ jobs:
           key: gradle-${{ hashFiles('**/*.gradle.kts', 'gradle/**') }}
           restore-keys: gradle-
 
+      # After the cache steps: version.properties feeds the natives cache key,
+      # which must stay stable across builds
+      - name: Bump version for reliable updates
+        run: |
+          BUILD_VERSION=$((1800 + ${{ github.run_number }}))
+          sed -i "s/^version.app=.*/version.app=$BUILD_VERSION/" version.properties
+          grep '^version.app=' version.properties
+
       - name: Prepare signing config
         env:
           KEYSTORE_B64: ${{ secrets.SIGNING_KEYSTORE_B64 }}
