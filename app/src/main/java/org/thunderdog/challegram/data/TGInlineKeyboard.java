@@ -485,13 +485,12 @@ public class TGInlineKeyboard {
       this.needFakeBold = Text.needFakeBold(text);
       this.iconCustomEmojiId = button.iconCustomEmojiId;
       if (button.iconCustomEmojiId != 0) {
-        this.iconText = buildIconText(button.iconCustomEmojiId);
+        this.iconText = buildIconText(button.iconCustomEmojiId, ICON_TEXT_SIZE_DP);
       }
       this.styleColorId = resolveStyleColorId(button.style);
-      int textMaxWidth = Math.max(0, maxWidth - getIconFootprint());
-      this.textSizeDp = fitTextSizeDp(text, textMaxWidth);
-      this.wrapper = new EmojiString(text, textMaxWidth, textPaintFor(textSizeDp));
       this.type = button.type;
+      int textMaxWidth = applyIconAndTextFit(text, maxWidth);
+      this.wrapper = new EmojiString(text, textMaxWidth, textPaintFor(textSizeDp));
       if (type.getConstructor() == TdApi.InlineKeyboardButtonTypeBuy.CONSTRUCTOR) {
         currencyChar = CurrencyUtils.getCurrencyChar(((TdApi.MessageInvoice) parent.getMessage().content).currency);
         currencyCharWidth = U.measureText(currencyChar, Paints.getBoldTextPaint(CURRENCY_TEXT_SIZE_DP));
@@ -512,7 +511,8 @@ public class TGInlineKeyboard {
         return 0;
       }
       int spacing = wrapper == null || !wrapper.getText().isEmpty() ? Screen.dp(ICON_SPACING_DP) : 0;
-      return iconText.getWidth() + spacing;
+      int cornerInset = Lang.rtl() && hasCornerIndicator() ? Screen.dp(20f) : 0;
+      return Screen.dp(ICON_EDGE_PADDING_DP) + iconText.getWidth() + spacing + cornerInset;
     }
 
     boolean hasIconTextMedia () {
@@ -534,12 +534,31 @@ public class TGInlineKeyboard {
       }
     }
 
-    private Text buildIconText (long customEmojiId) {
+    private Text buildIconText (long customEmojiId, float sizeDp) {
+      this.iconSizeDp = sizeDp;
       TdApi.TextEntity iconEntity = new TdApi.TextEntity(0, 1, new TdApi.TextEntityTypeCustomEmoji(customEmojiId));
       TdApi.FormattedText formattedText = new TdApi.FormattedText(EmojiStatusHelper.EMOJI, new TdApi.TextEntity[] {iconEntity});
-      return new Text.Builder(parent.tdlib(), formattedText, null, Screen.dp(1000f), Paints.robotoStyleProvider(BUTTON_TEXT_SIZE_DP), () -> iconTextColor, (text, specificMedia) -> parent.invalidateReplyMarkupTextMedia(text, specificMedia))
+      return new Text.Builder(parent.tdlib(), formattedText, null, Screen.dp(1000f), Paints.robotoStyleProvider(sizeDp), () -> iconTextColor, (text, specificMedia) -> parent.invalidateReplyMarkupTextMedia(text, specificMedia))
         .singleLine()
         .build();
+    }
+
+    // Fit the text and pick the icon size together: prefer the edge-pinned big
+    // icon, fall back to the small in-flow icon when the widest word cannot fit
+    private int lastFitMaxWidth;
+
+    private int applyIconAndTextFit (String text, int maxWidth) {
+      this.lastFitMaxWidth = maxWidth;
+      int textMaxWidth = Math.max(0, maxWidth - getIconFootprint());
+      float fit = fitTextSizeDp(text, textMaxWidth);
+      if (fit < 0 && iconText != null && iconSizeDp != BUTTON_TEXT_SIZE_DP) {
+        iconText.performDestroy();
+        this.iconText = buildIconText(iconCustomEmojiId, BUTTON_TEXT_SIZE_DP);
+        textMaxWidth = Math.max(0, maxWidth - getIconFootprint());
+        fit = fitTextSizeDp(text, textMaxWidth);
+      }
+      this.textSizeDp = fit < 0 ? MIN_BUTTON_TEXT_SIZE_DP : fit;
+      return textMaxWidth;
     }
 
     private static @ColorId int resolveStyleColorId (@Nullable TdApi.ButtonStyle style) {
@@ -566,12 +585,31 @@ public class TGInlineKeyboard {
       return customColorId != ColorId.NONE ? customColorId : styleColorId;
     }
 
+    private boolean hasCornerIndicator () {
+      if (type == null) {
+        return false;
+      }
+      switch (type.getConstructor()) {
+        case TdApi.InlineKeyboardButtonTypeSwitchInline.CONSTRUCTOR:
+        case TdApi.InlineKeyboardButtonTypeCallbackWithPassword.CONSTRUCTOR:
+        case TdApi.InlineKeyboardButtonTypeUser.CONSTRUCTOR:
+        case TdApi.InlineKeyboardButtonTypeUrl.CONSTRUCTOR:
+        case TdApi.InlineKeyboardButtonTypeLoginUrl.CONSTRUCTOR:
+        case TdApi.InlineKeyboardButtonTypeBuy.CONSTRUCTOR:
+          return true;
+      }
+      return false;
+    }
+
     // The icon narrows the text layout, so a label that used to fit exactly may
     // start breaking mid-word (StaticLayout splits words wider than the layout).
     // Shrink the font until the widest word fits instead.
     private float fitTextSizeDp (String text, int availWidth) {
-      if (availWidth <= 0 || iconText == null) {
+      if (iconText == null) {
         return BUTTON_TEXT_SIZE_DP;
+      }
+      if (availWidth <= 0) {
+        return -1f;
       }
       TextPaint paint = newTextPaint(BUTTON_TEXT_SIZE_DP);
       for (float size = BUTTON_TEXT_SIZE_DP; size >= MIN_BUTTON_TEXT_SIZE_DP; size -= .5f) {
@@ -582,7 +620,7 @@ public class TGInlineKeyboard {
           return size;
         }
       }
-      return MIN_BUTTON_TEXT_SIZE_DP;
+      return -1f;
     }
 
     private TextPaint newTextPaint (float sizeDp) {
@@ -633,6 +671,8 @@ public class TGInlineKeyboard {
     public void set (TdApi.InlineKeyboardButton button, int maxWidth) {
       this.type = button.type;
       this.styleColorId = resolveStyleColorId(button.style);
+      String text = uppercase(cleanButtonText(button.text));
+      final boolean reset = !wrapper.getText().equals(text);
       if (this.iconCustomEmojiId != button.iconCustomEmojiId) {
         this.iconCustomEmojiId = button.iconCustomEmojiId;
         if (iconText != null) {
@@ -640,17 +680,18 @@ public class TGInlineKeyboard {
           iconText = null;
         }
         if (button.iconCustomEmojiId != 0) {
-          this.iconText = buildIconText(button.iconCustomEmojiId);
+          this.iconText = buildIconText(button.iconCustomEmojiId, ICON_TEXT_SIZE_DP);
         }
+      } else if ((reset || maxWidth != lastFitMaxWidth) && iconText != null && iconSizeDp != ICON_TEXT_SIZE_DP) {
+        // label or geometry changed - the big icon may fit now, try it again
+        iconText.performDestroy();
+        this.iconText = buildIconText(iconCustomEmojiId, ICON_TEXT_SIZE_DP);
       }
-      String text = uppercase(cleanButtonText(button.text));
-      final boolean reset = !wrapper.getText().equals(text);
-      final int textMaxWidth = Math.max(0, maxWidth - getIconFootprint());
       this.needFakeBold = Text.needFakeBold(text);
-      final float newTextSizeDp = fitTextSizeDp(text, textMaxWidth);
-      if (reset || wrapper.getMaxWidth() != textMaxWidth || this.textSizeDp != newTextSizeDp) {
-        this.textSizeDp = newTextSizeDp;
-        this.wrapper = new EmojiString(uppercase(text), textMaxWidth, textPaintFor(newTextSizeDp));
+      final float oldTextSizeDp = this.textSizeDp;
+      final int textMaxWidth = applyIconAndTextFit(text, maxWidth);
+      if (reset || wrapper.getMaxWidth() != textMaxWidth || oldTextSizeDp != this.textSizeDp) {
+        this.wrapper = new EmojiString(uppercase(text), textMaxWidth, textPaintFor(this.textSizeDp));
       }
       if (reset || !Td.equalsTo(type, button.type)) {
         if (contextId == Integer.MAX_VALUE) {
@@ -687,6 +728,12 @@ public class TGInlineKeyboard {
 
     private static final float CUSTOM_ICON_PADDING = 2f;
     private static final float ICON_SPACING_DP = 4f;
+    // Fork look: edge-pinned icon sized to the button height (emoji box ≈35dp
+    // for 28dp text); falls back to the small in-flow size when the label's
+    // widest word cannot fit next to it even at MIN_BUTTON_TEXT_SIZE_DP
+    private static final float ICON_TEXT_SIZE_DP = 28f;
+    private static final float ICON_EDGE_PADDING_DP = 4f;
+    private float iconSizeDp = ICON_TEXT_SIZE_DP;
 
     public void draw (MessageView view, Canvas c, int cx, int cy, int buttonWidth, int buttonHeight, int strokePadding, RectF rounder, int row, int column) {
       final int right = cx + buttonWidth;
@@ -787,19 +834,24 @@ public class TGInlineKeyboard {
         int iconWidth = iconText.getWidth();
         int iconHeight = iconText.getHeight();
         int contentWidth = Math.min(wrapper.getMaxLineWidth(), wrapper.getWidth());
-        int spacing = contentWidth > 0 ? Screen.dp(ICON_SPACING_DP) : 0;
-        int totalWidth = iconWidth + spacing + contentWidth;
-        int iconX, textLeft;
-        if (Lang.rtl()) {
-          iconX = cx + buttonWidth / 2 + totalWidth / 2 - iconWidth;
-          textLeft = cx + buttonWidth / 2 - totalWidth / 2;
+        int iconX;
+        if (contentWidth <= 0) {
+          iconX = cx + (buttonWidth - iconWidth) / 2;
         } else {
-          iconX = cx + buttonWidth / 2 - totalWidth / 2;
-          textLeft = iconX + iconWidth + spacing;
+          int zoneWidth = Math.max(0, buttonWidth - getButtonPadding() * 2 - getIconFootprint());
+          if (Lang.rtl()) {
+            iconX = right - Screen.dp(ICON_EDGE_PADDING_DP) - iconWidth;
+            if (hasCornerIndicator()) {
+              iconX -= Screen.dp(20f);
+            }
+            textX = cx + getButtonPadding() + (zoneWidth - wrapper.getWidth()) / 2;
+          } else {
+            iconX = cx + Screen.dp(ICON_EDGE_PADDING_DP);
+            textX = cx + getButtonPadding() + getIconFootprint() + (zoneWidth - wrapper.getWidth()) / 2;
+          }
         }
-        textX = textLeft - (wrapper.getWidth() - contentWidth) / 2;
         this.iconTextColor = textColor;
-        iconText.draw(c, iconX, cy + (buttonHeight - iconHeight) / 2, null, 1f, view.getReplyMarkupTextMediaReceiver(true));
+        iconText.draw(c, iconX, cy + (buttonHeight - iconHeight) / 2 + Screen.dp(1.5f), null, 1f, view.getReplyMarkupTextMediaReceiver(true));
       }
       Paints.getBoldPaint14(needFakeBold, Theme.inlineTextColor(isOutBubble));
       wrapper.draw(c, textX, cy + Screen.dp(12f + (BUTTON_TEXT_SIZE_DP - textSizeDp) / 2f), textColor, true);
