@@ -581,7 +581,19 @@ public class MessagesController extends ViewController<MessagesController.Argume
     } else if (areScheduled) {
       headerCell.setForcedSubtitle(Lang.lowercase(Lang.getString(isSelfChat() ? R.string.Reminders : R.string.ScheduledMessages)));
     } else {
-      headerCell.setForcedSubtitle(null);
+      TdApi.MessageTopic topicId = getMessageTopicId();
+      if (topicId != null && topicId.getConstructor() == TdApi.MessageTopicForum.CONSTRUCTOR) {
+        headerCell.setForcedSubtitle(null);
+        long chatId = getChatId();
+        TdApi.MessageTopic expectedTopicId = topicId;
+        tdlib.client().send(new TdApi.GetForumTopic(chatId, ((TdApi.MessageTopicForum) topicId).forumTopicId), result -> runOnUiThreadOptional(() -> {
+          if (result.getConstructor() == TdApi.ForumTopic.CONSTRUCTOR && headerCell != null && getChatId() == chatId && Td.equalsTo(getMessageTopicId(), expectedTopicId)) {
+            headerCell.setForcedSubtitle(((TdApi.ForumTopic) result).info.name);
+          }
+        }));
+      } else {
+        headerCell.setForcedSubtitle(null);
+      }
     }
   }
 

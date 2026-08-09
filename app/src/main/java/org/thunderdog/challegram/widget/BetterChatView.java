@@ -88,6 +88,7 @@ public class BetterChatView extends BaseView implements Destroyable, RemoveHelpe
 
   private final AvatarReceiver avatarReceiver;
   private final ComplexReceiver subtitleMediaReceiver;
+  private final ComplexReceiver titleMediaReceiver;
   private final EmojiStatusHelper emojiStatusHelper;
   private @Nullable SimplestCheckBoxHelper checkBoxHelper;
 
@@ -119,6 +120,7 @@ public class BetterChatView extends BaseView implements Destroyable, RemoveHelpe
     super(context, tdlib);
     this.avatarReceiver = new AvatarReceiver(this);
     this.subtitleMediaReceiver = new ComplexReceiver(this, Config.MAX_ANIMATED_EMOJI_REFRESH_RATE);
+    this.titleMediaReceiver = new ComplexReceiver(this, Config.MAX_ANIMATED_EMOJI_REFRESH_RATE);
     this.emojiStatusHelper = new EmojiStatusHelper(tdlib, this, null);
     avatarReceiver.setBounds(Screen.dp(11f), Screen.dp(10f), Screen.dp(11f) + Screen.dp(52f), Screen.dp(10f) + Screen.dp(52f));
   }
@@ -126,12 +128,14 @@ public class BetterChatView extends BaseView implements Destroyable, RemoveHelpe
   public void attach () {
     avatarReceiver.attach();
     subtitleMediaReceiver.attach();
+    titleMediaReceiver.attach();
     emojiStatusHelper.attach();
   }
 
   public void detach () {
     avatarReceiver.detach();
     subtitleMediaReceiver.detach();
+    titleMediaReceiver.detach();
     emojiStatusHelper.detach();
   }
 
@@ -139,6 +143,7 @@ public class BetterChatView extends BaseView implements Destroyable, RemoveHelpe
   public void performDestroy () {
     avatarReceiver.destroy();
     subtitleMediaReceiver.performDestroy();
+    titleMediaReceiver.performDestroy();
     emojiStatusHelper.performDestroy();
     setChatImpl(null);
     setMessageImpl(null);
@@ -301,6 +306,7 @@ public class BetterChatView extends BaseView implements Destroyable, RemoveHelpe
     }
     if (avail <= 0 || title == null || title.isEmpty()) {
       displayTitle = null;
+      titleMediaReceiver.clear();
       return;
     }
     this.displayTitle = new Text.Builder(
@@ -308,7 +314,13 @@ public class BetterChatView extends BaseView implements Destroyable, RemoveHelpe
       (int) avail,
       Paints.robotoStyleProvider(17f),
       TextColorSets.Regular.NORMAL,
-      null
+      (text, specificMedia) -> {
+        if (this.displayTitle == text) {
+          if (!text.invalidateMediaContent(titleMediaReceiver, specificMedia)) {
+            text.requestMedia(titleMediaReceiver);
+          }
+        }
+      }
     ).singleLine()
      .highlight(titleHighlight)
      .allBold()
@@ -317,6 +329,9 @@ public class BetterChatView extends BaseView implements Destroyable, RemoveHelpe
      .viewProvider(new SingleViewProvider(this))
      .noClickable()
      .build();
+    if (this.displayTitle.requestMedia(titleMediaReceiver) == 0) {
+      titleMediaReceiver.clear();
+    }
   }
 
   public void setSubtitle (FormattedText subtitle, @Nullable Highlight subtitleHighlight) {
@@ -423,7 +438,7 @@ public class BetterChatView extends BaseView implements Destroyable, RemoveHelpe
         titleLeft += Screen.dp(15f);
         paint.setColor(Theme.getColor(ColorId.textSecure));
       }
-      displayTitle.draw(c, titleLeft, titleTop);
+      displayTitle.draw(c, titleLeft, titleTop, null, 1f, titleMediaReceiver);
       titleLeft += displayTitle.getWidth();
     }
     emojiStatusHelper.draw(c, titleLeft + Screen.dp(6), titleTop);

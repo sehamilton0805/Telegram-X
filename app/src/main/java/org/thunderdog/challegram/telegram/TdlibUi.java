@@ -106,6 +106,7 @@ import org.thunderdog.challegram.ui.ListItem;
 import org.thunderdog.challegram.ui.MainController;
 import org.thunderdog.challegram.ui.MapController;
 import org.thunderdog.challegram.ui.MapControllerFactory;
+import org.thunderdog.challegram.ui.ForumTopicsController;
 import org.thunderdog.challegram.ui.MessagesController;
 import org.thunderdog.challegram.ui.PasscodeController;
 import org.thunderdog.challegram.ui.PasscodeSetupController;
@@ -1815,6 +1816,11 @@ public class TdlibUi extends Handler {
       return this;
     }
 
+    public ChatOpenParameters messageTopic (TdApi.MessageTopic messageTopicId) {
+      this.messageTopicId = messageTopicId;
+      return this;
+    }
+
     public ChatOpenParameters searchFilter (TdApi.SearchMessagesFilter filter) {
       this.filter = filter;
       return this;
@@ -2129,11 +2135,36 @@ public class TdlibUi extends Handler {
       return;
     }
 
+    // Forum chats open as a topic list unless a specific topic, thread or message is requested
+    if (tdlib.isForum(chat.id) && messageThread == null && messageTopicId == null && !onlyScheduled && (params == null || !params.highlightSet) && shareItem == null && forceDraft == null) {
+      ForumTopicsController c = new ForumTopicsController(context.context(), tdlib);
+      c.setArguments(new ForumTopicsController.Args(chat.id));
+      if (navigation.isEmpty()) {
+        navigation.initController(c);
+        MainController m = new MainController(context.context(), context.tdlib());
+        m.getValue();
+        navigation.getStack().insert(m, 0);
+      } else {
+        navigation.navigateTo(c);
+      }
+      if (after != null) {
+        after.runWithLong(chat.id);
+      }
+      if (params != null) {
+        params.onDone();
+      }
+      return;
+    }
+
     final int highlightMode;
     final MessageId highlightMessageId;
     if (params != null && params.highlightSet) {
       highlightMode = params.highlightMode;
       highlightMessageId = params.highlightMessageId;
+    } else if (messageTopicId != null) {
+      // Chat-level unread anchors point at messages of other topics
+      highlightMode = MessagesManager.HIGHLIGHT_MODE_NONE;
+      highlightMessageId = null;
     } else {
       highlightMode = MessagesManager.getAnchorHighlightMode(tdlib.id(), chat, messageThread);
       highlightMessageId = MessagesManager.getAnchorMessageId(tdlib.id(), chat, messageThread, highlightMode);

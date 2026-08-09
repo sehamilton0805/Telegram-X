@@ -308,6 +308,8 @@
   <string name="xWallpapers_other">%1$s wallpapers</string>
   <string name="xCalls_one">%1$s call</string>
   <string name="xCalls_other">%1$s calls</string>
+  <string name="xTopics_one">%1$s topic</string>
+  <string name="xTopics_other">%1$s topics</string>
   <string name="general_Messages">Messages</string>
   <string name="SelectChat">Select Chat</string>
   <string name="Message">Message</string>
