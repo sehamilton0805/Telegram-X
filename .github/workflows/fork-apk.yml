@@ -53,12 +53,6 @@ jobs:
           key: gradle-${{ hashFiles('**/*.gradle.kts', 'gradle/**') }}
           restore-keys: gradle-
 
-      - name: NDK cache
-        uses: actions/cache@v4
-        with:
-          path: /usr/local/lib/android/sdk/ndk
-          key: ndk-${{ hashFiles('version.properties') }}
-
       - name: ccache
         uses: actions/cache@v4
         with:
