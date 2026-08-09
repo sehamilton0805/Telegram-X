@@ -2136,7 +2136,7 @@ public class ChatsController extends TelegramViewController<ChatsController.Argu
     int highlightMode;
     Object shareItem = pickerDelegate != null ? pickerDelegate.getShareItem() : null;
     TdlibUi.ChatOpenParameters params;
-    if ((highlightMode = MessagesManager.getAnchorHighlightMode(tdlib.id(), chat, null)) != MessagesManager.HIGHLIGHT_MODE_NONE) {
+    if (!tdlib.isForum(chat.id) && (highlightMode = MessagesManager.getAnchorHighlightMode(tdlib.id(), chat, null)) != MessagesManager.HIGHLIGHT_MODE_NONE) {
       params = new TdlibUi.ChatOpenParameters().shareItem(shareItem).highlightMessage(highlightMode, MessagesManager.getAnchorMessageId(tdlib.id(), chat, null, highlightMode));
     } else {
       params = new TdlibUi.ChatOpenParameters().shareItem(shareItem);
