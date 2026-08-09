@@ -109,23 +109,47 @@ public class ForumTopicsController extends RecyclerViewController<ForumTopicsCon
   }
 
   private void setTopicData (BetterChatView chatView, TdApi.ForumTopic topic) {
+    String name = topic.info.name + (topic.info.isClosed ? " 🔒" : "");
     FormattedText title;
     if (topic.info.icon != null && topic.info.icon.customEmojiId != 0) {
       title = FormattedText.concat(" ",
         FormattedText.customEmoji(tdlib, "💬", topic.info.icon.customEmojiId),
-        new FormattedText(topic.info.name)
+        new FormattedText(name)
       );
     } else {
-      title = new FormattedText(topic.info.name);
+      title = new FormattedText(name);
     }
     chatView.setTitle(title, null);
-    String name = topic.info.name;
-    String letter = name.isEmpty() ? "#" : name.substring(0, name.offsetByCodePoints(0, 1));
-    chatView.setAvatar(null, new AvatarPlaceholder.Metadata(new TdlibAccentColor(TdlibAccentColor.InternalId.INACTIVE), new Letters(letter)));
+    String letter = topic.info.name.isEmpty() ? "#" : topic.info.name.substring(0, topic.info.name.offsetByCodePoints(0, 1));
+    TdlibAccentColor accentColor;
+    if (topic.info.icon != null && topic.info.icon.color != 0) {
+      // Tint the placeholder with the topic's own icon color, like other clients do.
+      // Unique id per topic: AvatarReceiver keys placeholder identity by accent id
+      int argb = 0xFF000000 | topic.info.icon.color;
+      accentColor = new TdlibAccentColor(new TdApi.AccentColor(-(0x100 + topic.info.forumTopicId), 0, new int[] {argb}, new int[] {argb}, 0));
+    } else {
+      accentColor = new TdlibAccentColor(TdlibAccentColor.InternalId.INACTIVE);
+    }
+    chatView.setAvatar(null, new AvatarPlaceholder.Metadata(accentColor, new Letters(letter)));
     TdApi.Message lastMessage = topic.lastMessage;
     if (lastMessage != null) {
       ContentPreview preview = ContentPreview.getChatListPreview(tdlib, chatId(), lastMessage, false);
-      chatView.setSubtitle(preview.buildFormattedText(true), null);
+      TdApi.FormattedText previewText = preview.buildFormattedText(true);
+      String senderPrefix = tdlib.senderName(lastMessage.senderId, true) + ": ";
+      TdApi.TextEntity prefixEntity = new TdApi.TextEntity(0, senderPrefix.length(), new TdApi.TextEntityTypeBold());
+      TdApi.TextEntity[] entities;
+      if (previewText.entities != null && previewText.entities.length > 0) {
+        // Copy: previewText aliases topic.lastMessage.content, mutation would corrupt it on rebinds
+        entities = new TdApi.TextEntity[previewText.entities.length + 1];
+        entities[0] = prefixEntity;
+        for (int i = 0; i < previewText.entities.length; i++) {
+          TdApi.TextEntity entity = previewText.entities[i];
+          entities[i + 1] = new TdApi.TextEntity(entity.offset + senderPrefix.length(), entity.length, entity.type);
+        }
+      } else {
+        entities = new TdApi.TextEntity[] {prefixEntity};
+      }
+      chatView.setSubtitle(new TdApi.FormattedText(senderPrefix + previewText.text, entities), null);
       chatView.setTime(Lang.timeOrDateShort(lastMessage.date, TimeUnit.SECONDS));
     } else {
       chatView.setSubtitle((CharSequence) null);
