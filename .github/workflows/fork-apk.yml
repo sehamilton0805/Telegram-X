@@ -112,6 +112,8 @@ jobs:
         env:
           CMAKE_C_COMPILER_LAUNCHER: ccache
           CMAKE_CXX_COMPILER_LAUNCHER: ccache
+          # ccache 4.x defaults to ~/.cache/ccache (XDG); pin the dir the cache step archives
+          CCACHE_DIR: /home/runner/.ccache
           CCACHE_COMPILERCHECK: content
           CCACHE_MAXSIZE: 1G
         run: |
