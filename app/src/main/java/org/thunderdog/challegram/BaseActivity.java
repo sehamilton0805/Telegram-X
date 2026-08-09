@@ -2092,6 +2092,10 @@ public abstract class BaseActivity extends FragmentActivity implements View.OnTo
   private StickerPreviewView stickerPreview;
   private View stickerPreviewControllerView;
 
+  public boolean hasStickerPreview () {
+    return stickerPreview != null;
+  }
+
   public void openStickerPreview (Tdlib tdlib, StickerSmallView stickerView, TGStickerObj sticker, int cx, int cy, int maxWidth, int viewportHeight, boolean disableEmojis) {
     if (stickerPreview != null) {
       return;

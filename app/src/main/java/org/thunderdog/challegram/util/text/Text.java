@@ -2718,6 +2718,7 @@ public class Text implements Runnable, Emoji.CountLimiter, CounterTextPart, List
     default boolean onUrlClick (View view, String link, boolean promptUser, @NonNull TdlibUi.UrlOpenParameters openParameters) { return false; }
     default boolean onAnchorClick (View view, String anchor) { return false; }
     default boolean onReferenceClick (View view, String name, String referenceAnchorName, @NonNull TdlibUi.UrlOpenParameters openParameters) { return false; }
+    default boolean onCustomEmojiClick (View view, Text text, TextPart part, long customEmojiId, int touchX, int touchY, int size) { return false; }
   }
 
   public boolean highlightPart (int index, boolean onlyClickable) {
@@ -2741,7 +2742,7 @@ public class Text implements Runnable, Emoji.CountLimiter, CounterTextPart, List
     return hasMedia() ? (getLineHeight(part.getLineIndex()) - getPartHeight(part)) / 2 : 0;
   }
 
-  private int findTextPart (int touchX, int touchY, int startX, int endX, int endXBottomPadding, int startY, boolean onlyClickable) {
+  private int findTextPart (int touchX, int touchY, int startX, int endX, int endXBottomPadding, int startY, boolean onlyClickable, boolean allowCustomEmoji) {
     int x = touchX - startX;
     int y = touchY - startY;
 
@@ -2771,7 +2772,7 @@ public class Text implements Runnable, Emoji.CountLimiter, CounterTextPart, List
         if (candidateIndex == -1) {
           candidateIndex = i;
         }
-        if (needRevealSpoiler(part) || part.getClickableEntity() != null) {
+        if (needRevealSpoiler(part) || part.getClickableEntity() != null || (allowCustomEmoji && part.isCustomEmoji())) {
           return i;
         }
       } else if (candidateIndex == -1 && x >= px - touchBound && x <= px1 + touchBound && y >= py - touchBound && y <= py1 + touchBound) {
@@ -2781,7 +2782,7 @@ public class Text implements Runnable, Emoji.CountLimiter, CounterTextPart, List
     }
     if (candidateIndex != -1) {
       TextPart part = parts.get(candidateIndex);
-      if (!onlyClickable || needRevealSpoiler(part) || part.getClickableEntity() != null) {
+      if (!onlyClickable || needRevealSpoiler(part) || part.getClickableEntity() != null || (allowCustomEmoji && part.isCustomEmoji())) {
         return candidateIndex;
       }
     }
@@ -2932,7 +2933,7 @@ public class Text implements Runnable, Emoji.CountLimiter, CounterTextPart, List
         touchY = (int) e.getY();
 
         final boolean onlyClickable = clickListener == null;
-        final int causeIndex = findTextPart(touchX, touchY, lastStartX, lastEndX, lastEndXBottomPadding, lastStartY, onlyClickable);
+        final int causeIndex = findTextPart(touchX, touchY, lastStartX, lastEndX, lastEndXBottomPadding, lastStartY, onlyClickable, callback != null);
         if (causeIndex == -1) {
 
           for (QuoteBackground quote : quotes) {
@@ -2960,7 +2961,7 @@ public class Text implements Runnable, Emoji.CountLimiter, CounterTextPart, List
           startIndex = spoiler.startPartIndex;
           endIndex = spoiler.startPartIndex + spoiler.partsCount;
         } else {
-          if (onlyClickable && !foundPart.isClickable()) {
+          if (onlyClickable && !foundPart.isClickable() && !(callback != null && foundPart.isCustomEmoji())) {
             cancelTouch();
             return false;
           }
@@ -3027,6 +3028,11 @@ public class Text implements Runnable, Emoji.CountLimiter, CounterTextPart, List
           } else if (entity != null) {
             entity.performClick(view, this, part, callback, false);
             done = true;
+          } else if (part.isCustomEmoji() && callback != null) {
+            long customEmojiId = part.getEntity() != null ? part.getEntity().getCustomEmojiId() : 0;
+            if (customEmojiId != 0) {
+              done = callback.onCustomEmojiClick(view, this, part, customEmojiId, touchX, touchY, getPartHeight(part));
+            }
           }
           cancelTouch();
           if (done) {

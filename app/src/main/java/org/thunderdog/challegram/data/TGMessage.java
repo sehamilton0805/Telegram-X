@@ -64,6 +64,8 @@ import org.thunderdog.challegram.component.chat.MessageView;
 import org.thunderdog.challegram.component.chat.MessageViewGroup;
 import org.thunderdog.challegram.component.chat.MessagesManager;
 import org.thunderdog.challegram.component.chat.ReplyComponent;
+import org.thunderdog.challegram.component.sticker.StickerPreviewView;
+import org.thunderdog.challegram.component.sticker.StickerSmallView;
 import org.thunderdog.challegram.component.sticker.TGStickerObj;
 import org.thunderdog.challegram.config.Config;
 import org.thunderdog.challegram.config.Device;
@@ -7709,6 +7711,86 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
       .source(openParameters());
   }
 
+  private CustomEmojiPreviewHandler customEmojiPreviewHandler;
+
+  public final boolean openCustomEmojiPreview (View view, long customEmojiId, int centerX, int centerY, int size) {
+    TdlibEmojiManager.Entry entry = tdlib.emoji().find(customEmojiId);
+    if (entry == null || entry.value == null) {
+      return false;
+    }
+    TdApi.Sticker sticker = entry.value;
+    if (customEmojiPreviewHandler == null) {
+      customEmojiPreviewHandler = new CustomEmojiPreviewHandler(this);
+    }
+    return customEmojiPreviewHandler.open(view, new TGStickerObj(tdlib, sticker, null, sticker.fullType), centerX, centerY, size);
+  }
+
+  // Telegram Desktop-style preview for a tapped custom emoji inside message
+  // text: dimmed backdrop, the emoji rendered large, "view pack" underneath
+  private static final class CustomEmojiPreviewHandler implements StickerPreviewView.PreviewCallback, StickerPreviewView.MenuStickerPreviewCallback {
+    private final TGMessage msg;
+    private boolean isOpen;
+
+    CustomEmojiPreviewHandler (TGMessage msg) {
+      this.msg = msg;
+    }
+
+    boolean open (View view, TGStickerObj sticker, int centerX, int centerY, int size) {
+      BaseActivity context = msg.context();
+      if (context.hasStickerPreview()) {
+        return false;
+      }
+      // StickerPreviewView consumes window coordinates for the fly-out origin
+      int[] location = new int[2];
+      view.getLocationInWindow(location);
+      context.openStickerPreview(msg.tdlib, view, this, sticker, location[0] + centerX, location[1] + centerY, Math.max(size, Screen.dp(20f)), Screen.currentHeight(), true);
+      isOpen = true;
+      // The menu positions itself from the popup's measured size - wait out the reveal
+      UI.post(() -> {
+        if (isOpen) {
+          context.openStickerMenu(view, sticker);
+        }
+      }, 300);
+      return true;
+    }
+
+    @Override
+    public StickerPreviewView.MenuStickerPreviewCallback getMenuStickerPreviewCallback () {
+      return this;
+    }
+
+    @Override
+    public int getThemedColorId () {
+      return ColorId.iconActive;
+    }
+
+    @Override
+    public void closePreviewIfNeeded () {
+      if (isOpen) {
+        isOpen = false;
+        msg.context().closeStickerPreview();
+      }
+    }
+
+    @Override
+    public void buildMenuStickerPreview (ArrayList<StickerPreviewView.MenuItem> menuItems, @NonNull TGStickerObj sticker) {
+      menuItems.add(new StickerPreviewView.MenuItem(
+        StickerPreviewView.MenuItem.MENU_ITEM_TEXT,
+        Lang.getString(R.string.ViewPackPreview).toUpperCase(),
+        R.id.btn_view,
+        ColorId.textNeutral
+      ));
+    }
+
+    @Override
+    public void onMenuStickerPreviewClick (View v, ViewController<?> context, @NonNull TGStickerObj sticker, @Nullable StickerSmallView stickerSmallView) {
+      if (v.getId() == R.id.btn_view) {
+        msg.tdlib.ui().showStickerSet(context, sticker.getStickerSetId(), null);
+        closePreviewIfNeeded();
+      }
+    }
+  }
+
   private Text.ClickCallback clickCallback;
 
   @Nullable
@@ -7739,6 +7821,11 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
           messagesController().sendCommand(command, user != null && user.type.getConstructor() == TdApi.UserTypeBot.CONSTRUCTOR ? Td.primaryUsername(user) : null);
         }
         return true;
+      }
+
+      @Override
+      public boolean onCustomEmojiClick (View view, Text text, TextPart part, long customEmojiId, int touchX, int touchY, int size) {
+        return openCustomEmojiPreview(view, customEmojiId, touchX, touchY, size);
       }
 
       @Override
