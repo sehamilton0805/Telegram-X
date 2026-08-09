@@ -32,7 +32,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y git-lfs unzip sed wget make clang yasm nasm
+          sudo apt-get install -y git-lfs unzip sed wget make clang yasm nasm ccache
 
       - name: Native libraries cache
         id: native-cache
@@ -52,6 +52,19 @@ jobs:
             ~/.gradle/wrapper
           key: gradle-${{ hashFiles('**/*.gradle.kts', 'gradle/**') }}
           restore-keys: gradle-
+
+      - name: NDK cache
+        uses: actions/cache@v4
+        with:
+          path: /usr/local/lib/android/sdk/ndk
+          key: ndk-${{ hashFiles('version.properties') }}
+
+      - name: ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ccache-${{ github.sha }}
+          restore-keys: ccache-
 
       # After the cache steps: version.properties feeds the natives cache key,
       # which must stay stable across builds
@@ -102,7 +115,15 @@ jobs:
           echo "app.experimental=true" >> local.properties
 
       - name: Build APK
-        run: ./gradlew :app:assembleLatestArm64Release --stacktrace --no-daemon
+        env:
+          CMAKE_C_COMPILER_LAUNCHER: ccache
+          CMAKE_CXX_COMPILER_LAUNCHER: ccache
+          CCACHE_COMPILERCHECK: content
+          CCACHE_MAXSIZE: 1G
+        run: |
+          ccache --zero-stats
+          ./gradlew :app:assembleLatestArm64Release --stacktrace --no-daemon
+          ccache --show-stats
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
