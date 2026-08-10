@@ -109,28 +109,24 @@ public class ForumTopicsController extends RecyclerViewController<ForumTopicsCon
   }
 
   private void setTopicData (BetterChatView chatView, TdApi.ForumTopic topic) {
+    chatView.setTopicStyle();
     String name = topic.info.name + (topic.info.isClosed ? " 🔒" : "");
-    FormattedText title;
-    if (topic.info.icon != null && topic.info.icon.customEmojiId != 0) {
-      title = FormattedText.concat(" ",
-        FormattedText.customEmoji(tdlib, "💬", topic.info.icon.customEmojiId),
-        new FormattedText(name)
-      );
-    } else {
-      title = new FormattedText(name);
+    chatView.setTitle(new FormattedText(name), null);
+    long iconEmojiId = topic.info.icon != null ? topic.info.icon.customEmojiId : 0;
+    chatView.setAvatarCustomEmoji(iconEmojiId, 20f);
+    if (iconEmojiId == 0) {
+      String letter = topic.info.name.isEmpty() ? "#" : topic.info.name.substring(0, topic.info.name.offsetByCodePoints(0, 1));
+      TdlibAccentColor accentColor;
+      if (topic.info.icon != null && topic.info.icon.color != 0) {
+        // Tint the placeholder with the topic's own icon color, like other clients do.
+        // Unique id per topic: AvatarReceiver keys placeholder identity by accent id
+        int argb = 0xFF000000 | topic.info.icon.color;
+        accentColor = new TdlibAccentColor(new TdApi.AccentColor(-(0x100 + topic.info.forumTopicId), 0, new int[] {argb}, new int[] {argb}, 0));
+      } else {
+        accentColor = new TdlibAccentColor(TdlibAccentColor.InternalId.INACTIVE);
+      }
+      chatView.setAvatar(null, new AvatarPlaceholder.Metadata(accentColor, new Letters(letter)));
     }
-    chatView.setTitle(title, null);
-    String letter = topic.info.name.isEmpty() ? "#" : topic.info.name.substring(0, topic.info.name.offsetByCodePoints(0, 1));
-    TdlibAccentColor accentColor;
-    if (topic.info.icon != null && topic.info.icon.color != 0) {
-      // Tint the placeholder with the topic's own icon color, like other clients do.
-      // Unique id per topic: AvatarReceiver keys placeholder identity by accent id
-      int argb = 0xFF000000 | topic.info.icon.color;
-      accentColor = new TdlibAccentColor(new TdApi.AccentColor(-(0x100 + topic.info.forumTopicId), 0, new int[] {argb}, new int[] {argb}, 0));
-    } else {
-      accentColor = new TdlibAccentColor(TdlibAccentColor.InternalId.INACTIVE);
-    }
-    chatView.setAvatar(null, new AvatarPlaceholder.Metadata(accentColor, new Letters(letter)));
     TdApi.Message lastMessage = topic.lastMessage;
     if (lastMessage != null) {
       ContentPreview preview = ContentPreview.getChatListPreview(tdlib, chatId(), lastMessage, false);

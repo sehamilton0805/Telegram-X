@@ -145,6 +145,11 @@ public class BetterChatView extends BaseView implements Destroyable, RemoveHelpe
     subtitleMediaReceiver.performDestroy();
     titleMediaReceiver.performDestroy();
     emojiStatusHelper.performDestroy();
+    if (avatarEmojiText != null) {
+      avatarEmojiText.performDestroy();
+      avatarEmojiText = null;
+      avatarEmojiId = 0;
+    }
     setChatImpl(null);
     setMessageImpl(null);
   }
@@ -190,13 +195,43 @@ public class BetterChatView extends BaseView implements Destroyable, RemoveHelpe
     }
   }
 
+  private boolean topicStyle;
+
+  // Forum topic rows mimic the official clients: no avatar column, a small icon
+  // inline with the title line, subtitle starting at the content edge
+  public void setTopicStyle () {
+    if (!topicStyle) {
+      topicStyle = true;
+      layoutReceiver(getMeasuredWidth());
+      setTrimmedTitle();
+      setTrimmedSubtitle();
+      invalidate();
+    }
+  }
+
+  private int contentLeft () {
+    return Screen.dp(topicStyle ? 16f : 72f);
+  }
+
+  private int titleLeft () {
+    return topicStyle ? Screen.dp(16f) + Screen.dp(20f) + Screen.dp(7f) : Screen.dp(72f);
+  }
+
   private void layoutReceiver (int width) {
-    if (Lang.rtl()) {
-      int x = Screen.dp(11f);
-      int avatarWidth = Screen.dp(52f);
-      avatarReceiver.setBounds(width - x - avatarWidth, Screen.dp(10f), width - x, Screen.dp(10f) + Screen.dp(52f));
+    int size, x, top;
+    if (topicStyle) {
+      size = Screen.dp(20f);
+      x = Screen.dp(16f);
+      top = Screen.dp(14f);
     } else {
-      avatarReceiver.setBounds(Screen.dp(11f), Screen.dp(10f), Screen.dp(11f) + Screen.dp(52f), Screen.dp(10f) + Screen.dp(52f));
+      size = Screen.dp(52f);
+      x = Screen.dp(11f);
+      top = Screen.dp(10f);
+    }
+    if (Lang.rtl()) {
+      avatarReceiver.setBounds(width - x - size, top, width - x, top + size);
+    } else {
+      avatarReceiver.setBounds(x, top, x + size, top + size);
     }
   }
 
@@ -213,6 +248,35 @@ public class BetterChatView extends BaseView implements Destroyable, RemoveHelpe
 
   public void setUnreadCount (int unreadCount, boolean muted, boolean animated) {
     counter.setCount(unreadCount, muted, animated);
+  }
+
+  private @Nullable Text avatarEmojiText;
+  private long avatarEmojiId;
+  private static final long AVATAR_EMOJI_MEDIA_KEY_OFFSET = 1_000_000L;
+
+  public void setAvatarCustomEmoji (long customEmojiId, float sizeDp) {
+    if (this.avatarEmojiId == customEmojiId) {
+      return;
+    }
+    this.avatarEmojiId = customEmojiId;
+    if (avatarEmojiText != null) {
+      avatarEmojiText.performDestroy();
+      avatarEmojiText = null;
+    }
+    titleMediaReceiver.clearReceiversWithHigherKey(AVATAR_EMOJI_MEDIA_KEY_OFFSET);
+    if (customEmojiId != 0) {
+      TdApi.TextEntity entity = new TdApi.TextEntity(0, 1, new TdApi.TextEntityTypeCustomEmoji(customEmojiId));
+      TdApi.FormattedText formattedText = new TdApi.FormattedText(EmojiStatusHelper.EMOJI, new TdApi.TextEntity[] {entity});
+      avatarEmojiText = new Text.Builder(tdlib, formattedText, null, Screen.dp(100f), Paints.robotoStyleProvider(sizeDp - 3f), TextColorSets.Regular.NORMAL, (text, specificMedia) -> {
+        if (avatarEmojiText == text) {
+          if (!text.invalidateMediaContent(titleMediaReceiver, specificMedia)) {
+            text.requestMedia(titleMediaReceiver, AVATAR_EMOJI_MEDIA_KEY_OFFSET, 1);
+          }
+        }
+      }).singleLine().build();
+      avatarEmojiText.requestMedia(titleMediaReceiver, AVATAR_EMOJI_MEDIA_KEY_OFFSET, 1);
+    }
+    invalidate();
   }
 
   public void setSubtitleIcon (int icon, @ColorId int color) {
@@ -293,7 +357,7 @@ public class BetterChatView extends BaseView implements Destroyable, RemoveHelpe
 
   private void setTrimmedTitle () {
     int width = getMeasuredWidth();
-    float avail = width - Screen.dp(72f) - ChatView.getTimePaddingRight();
+    float avail = width - titleLeft() - ChatView.getTimePaddingRight();
     if (timeWidth != 0) {
       avail -= timeWidth + ChatView.getTimePaddingLeft();
     }
@@ -306,7 +370,8 @@ public class BetterChatView extends BaseView implements Destroyable, RemoveHelpe
     }
     if (avail <= 0 || title == null || title.isEmpty()) {
       displayTitle = null;
-      titleMediaReceiver.clear();
+      // Clear only the title's key range: keys at AVATAR_EMOJI_MEDIA_KEY_OFFSET belong to the avatar emoji
+      titleMediaReceiver.clearReceiversRange(0, AVATAR_EMOJI_MEDIA_KEY_OFFSET);
       return;
     }
     this.displayTitle = new Text.Builder(
@@ -317,7 +382,7 @@ public class BetterChatView extends BaseView implements Destroyable, RemoveHelpe
       (text, specificMedia) -> {
         if (this.displayTitle == text) {
           if (!text.invalidateMediaContent(titleMediaReceiver, specificMedia)) {
-            text.requestMedia(titleMediaReceiver);
+            requestTitleMedia(text);
           }
         }
       }
@@ -329,9 +394,16 @@ public class BetterChatView extends BaseView implements Destroyable, RemoveHelpe
      .viewProvider(new SingleViewProvider(this))
      .noClickable()
      .build();
-    if (this.displayTitle.requestMedia(titleMediaReceiver) == 0) {
-      titleMediaReceiver.clear();
-    }
+    requestTitleMedia(this.displayTitle);
+  }
+
+  private void requestTitleMedia (Text text) {
+    // Keys [0, AVATAR_EMOJI_MEDIA_KEY_OFFSET) belong to the title, AVATAR_EMOJI_MEDIA_KEY_OFFSET — to the avatar emoji.
+    // Text.requestMedia(receiver) with default arguments calls clearReceiversWithHigherKey(maxMediaId + 1),
+    // and the previous `clear()` fallback wiped the whole receiver — both would destroy the avatar emoji media.
+    // Media ids are contiguous (0..count-1), so clearing [count, AVATAR_EMOJI_MEDIA_KEY_OFFSET) drops stale title keys only.
+    int mediaCount = text.requestMedia(titleMediaReceiver, 0, AVATAR_EMOJI_MEDIA_KEY_OFFSET);
+    titleMediaReceiver.clearReceiversRange(mediaCount, AVATAR_EMOJI_MEDIA_KEY_OFFSET);
   }
 
   public void setSubtitle (FormattedText subtitle, @Nullable Highlight subtitleHighlight) {
@@ -356,7 +428,7 @@ public class BetterChatView extends BaseView implements Destroyable, RemoveHelpe
 
   private void setTrimmedSubtitle () {
     int width = getMeasuredWidth();
-    float avail = width - Screen.dp(72f) - ChatView.getTimePaddingRight();
+    float avail = width - contentLeft() - ChatView.getTimePaddingRight();
     if (subtitleIcon != 0) {
       avail -= Screen.dp(18f);
     }
@@ -394,7 +466,7 @@ public class BetterChatView extends BaseView implements Destroyable, RemoveHelpe
   @Override
   public void getTargetBounds (View targetView, Rect outRect) {
     if (displayTitle != null) {
-      int titleLeft = Screen.dp(72f);
+      int titleLeft = titleLeft();
       int titleTop = Screen.dp(28f) + Screen.dp(1f) - Screen.dp(16f);
       Paint.FontMetricsInt fm = ChatView.getTitlePaint((flags & FLAG_FAKE_TITLE) != 0).getFontMetricsInt();
       int titleBottom = titleTop + U.getLineHeight(fm);
@@ -414,16 +486,22 @@ public class BetterChatView extends BaseView implements Destroyable, RemoveHelpe
 
     layoutReceiver(width);
 
-    if (avatarReceiver.needPlaceholder()) {
-      avatarReceiver.drawPlaceholder(c);
+    if (avatarEmojiText != null) {
+      int emojiX = avatarReceiver.getLeft() + (avatarReceiver.getWidth() - avatarEmojiText.getWidth()) / 2;
+      int emojiY = avatarReceiver.getTop() + (avatarReceiver.getHeight() - avatarEmojiText.getHeight()) / 2 + Screen.dp(1.5f);
+      avatarEmojiText.draw(c, emojiX, emojiY, null, 1f, titleMediaReceiver);
+    } else {
+      if (avatarReceiver.needPlaceholder()) {
+        avatarReceiver.drawPlaceholder(c);
+      }
+      avatarReceiver.draw(c);
     }
-    avatarReceiver.draw(c);
     final float checkFactor = checkBoxHelper != null ? checkBoxHelper.getCheckFactor() : 0f;
     if (checkFactor > 0f) {
       DrawAlgorithms.drawSimplestCheckBox(c, avatarReceiver, checkFactor);
     }
     boolean noSubtitle = BitwiseUtils.hasFlag(flags, FLAG_NO_SUBTITLE);
-    int titleLeft = Screen.dp(72f);
+    int titleLeft = titleLeft();
     int titleTop;
     if (noSubtitle) {
       titleTop = (getHeight() - displayTitle.getHeight()) / 2;
@@ -445,7 +523,7 @@ public class BetterChatView extends BaseView implements Destroyable, RemoveHelpe
     if (!noSubtitle) {
       int subtitleOffset = -Screen.dp(1f);
       if (displaySubtitle != null) {
-        int subtitleLeft = Screen.dp(72f);
+        int subtitleLeft = contentLeft();
         if (subtitleIcon != 0) {
           subtitleLeft += Screen.dp(20f);
         }
@@ -454,14 +532,16 @@ public class BetterChatView extends BaseView implements Destroyable, RemoveHelpe
         displaySubtitle.draw(c, subtitleLeft, subtitleTop, colorSet, 1f, subtitleMediaReceiver);
       }
       if (subtitleIcon != 0) {
-        Drawables.drawRtl(c, subtitleIconDrawable, Screen.dp(72f), Screen.dp(subtitleIcon == R.drawable.baseline_call_missed_18 ? 40f : 39f) + subtitleOffset, PorterDuffPaint.get(subtitleIconColorId), width, rtl);
+        Drawables.drawRtl(c, subtitleIconDrawable, contentLeft(), Screen.dp(subtitleIcon == R.drawable.baseline_call_missed_18 ? 40f : 39f) + subtitleOffset, PorterDuffPaint.get(subtitleIconColorId), width, rtl);
       }
     }
     if (time != null) {
       c.drawText(time, rtl ? ChatView.getTimePaddingRight() : width - ChatView.getTimePaddingRight() - timeWidth, Screen.dp(28f), ChatView.getTimePaint());
     }
 
-    counter.draw(c, rtl ? ChatView.getTimePaddingRight() + Screen.dp(11.5f) : width - ChatView.getTimePaddingRight() - Screen.dp(11.5f), getMeasuredHeight() / 2f, rtl ? Gravity.LEFT : Gravity.RIGHT, 1f);
+    // With a time label at the top-right, a centered counter collides with it - drop to the subtitle line
+    float counterCenterY = getMeasuredHeight() / 2f + (time != null ? Screen.dp(11f) : 0f);
+    counter.draw(c, rtl ? ChatView.getTimePaddingRight() + Screen.dp(11.5f) : width - ChatView.getTimePaddingRight() - Screen.dp(11.5f), counterCenterY, rtl ? Gravity.LEFT : Gravity.RIGHT, 1f);
 
     if (removeHelper != null) {
       removeHelper.restore(c);
