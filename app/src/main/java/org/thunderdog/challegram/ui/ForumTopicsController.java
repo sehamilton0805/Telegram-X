@@ -15,7 +15,11 @@
 package org.thunderdog.challegram.ui;
 
 import android.content.Context;
+import android.graphics.Canvas;
+import android.graphics.RectF;
+import android.view.Gravity;
 import android.view.View;
+import android.view.ViewGroup;
 
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.LinearLayoutManager;
@@ -26,22 +30,37 @@ import org.thunderdog.challegram.R;
 import org.thunderdog.challegram.core.Lang;
 import org.thunderdog.challegram.data.AvatarPlaceholder;
 import org.thunderdog.challegram.data.ContentPreview;
+import org.thunderdog.challegram.loader.AvatarReceiver;
+import org.thunderdog.challegram.telegram.ChatListListener;
 import org.thunderdog.challegram.telegram.ForumTopicInfoListener;
 import org.thunderdog.challegram.telegram.MessageListener;
 import org.thunderdog.challegram.telegram.Tdlib;
 import org.thunderdog.challegram.telegram.TdlibAccentColor;
+import org.thunderdog.challegram.telegram.TdlibChatList;
+import org.thunderdog.challegram.telegram.TdlibChatListSlice;
 import org.thunderdog.challegram.telegram.TdlibUi;
+import org.thunderdog.challegram.theme.ColorId;
+import org.thunderdog.challegram.theme.Theme;
+import org.thunderdog.challegram.tool.Paints;
 import org.thunderdog.challegram.tool.Screen;
+import org.thunderdog.challegram.tool.Views;
+import org.thunderdog.challegram.util.text.Counter;
 import org.thunderdog.challegram.util.text.FormattedText;
 import org.thunderdog.challegram.util.text.Letters;
 import org.thunderdog.challegram.v.CustomRecyclerView;
+import org.thunderdog.challegram.widget.AttachDelegate;
 import org.thunderdog.challegram.widget.BetterChatView;
 import org.thunderdog.challegram.widget.ListInfoView;
 
 import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
-public class ForumTopicsController extends RecyclerViewController<ForumTopicsController.Args> implements View.OnClickListener, MessageListener, ForumTopicInfoListener {
+import me.vkryl.android.widget.FrameLayoutFix;
+import me.vkryl.core.lambda.Destroyable;
+import tgx.td.ChatPosition;
+
+public class ForumTopicsController extends RecyclerViewController<ForumTopicsController.Args> implements View.OnClickListener, MessageListener, ForumTopicInfoListener, ChatListListener {
   public static class Args {
     public final long chatId;
 
@@ -72,9 +91,67 @@ public class ForumTopicsController extends RecyclerViewController<ForumTopicsCon
   private int nextOffsetDate;
   private long nextOffsetMessageId;
   private int nextOffsetForumTopicId;
+  // Bumped on every in-place forum swap: async responses captured under an older
+  // generation must be dropped, they belong to the previous chat
+  private int topicsGeneration;
+
+  private static final int RAIL_WIDTH_DP = 64;
+  private RecyclerView railRecyclerView;
+  private RailAdapter railAdapter;
+  private TdlibChatListSlice chatListSlice;
 
   private long chatId () {
     return getArgumentsStrict().chatId;
+  }
+
+  @Override
+  protected View onCreateView (Context context) {
+    View view = super.onCreateView(context);
+    FrameLayoutFix wrap = (FrameLayoutFix) view;
+    railAdapter = new RailAdapter();
+    railRecyclerView = new RecyclerView(context);
+    railRecyclerView.setLayoutManager(new LinearLayoutManager(context, RecyclerView.VERTICAL, false));
+    railRecyclerView.setVerticalScrollBarEnabled(false);
+    railRecyclerView.setAdapter(railAdapter);
+    railRecyclerView.addOnScrollListener(new RecyclerView.OnScrollListener() {
+      @Override
+      public void onScrolled (@NonNull RecyclerView recyclerView, int dx, int dy) {
+        if (dy != 0 && chatListSlice != null && chatListSlice.canLoad() &&
+          ((LinearLayoutManager) recyclerView.getLayoutManager()).findLastVisibleItemPosition() >= railAdapter.getItemCount() - 8) {
+          chatListSlice.loadMore(20, null);
+        }
+      }
+    });
+    wrap.addView(railRecyclerView, FrameLayoutFix.newParams(Screen.dp(RAIL_WIDTH_DP), ViewGroup.LayoutParams.MATCH_PARENT, Gravity.LEFT));
+    Views.setLeftMargin(getRecyclerView(), Screen.dp(RAIL_WIDTH_DP));
+    chatListSlice = tdlib.chatList(ChatPosition.CHAT_LIST_MAIN).slice(null, true, null);
+    chatListSlice.initializeList(this, this::displayRailChats, 30, () -> {});
+    return view;
+  }
+
+  @Override
+  protected void onBottomInsetChanged (int extraBottomInset, int extraBottomInsetWithoutIme, boolean isImeInset) {
+    super.onBottomInsetChanged(extraBottomInset, extraBottomInsetWithoutIme, isImeInset);
+    Views.applyBottomInset(railRecyclerView, extraBottomInset);
+  }
+
+  // The slice callback delivers DELTAS: each invocation carries only the entries past the
+  // previously displayed count (initial chunk, then every loadMore/backfill) - append, never replace
+  private void displayRailChats (List<TdlibChatListSlice.Entry> entries) {
+    final ArrayList<TdApi.Chat> chats = new ArrayList<>(entries.size());
+    for (TdlibChatList.Entry entry : entries) {
+      chats.add(entry.chat);
+    }
+    runOnUiThreadOptional(() -> {
+      boolean isInitialChunk = railAdapter.getItemCount() == 0;
+      railAdapter.addChats(chats);
+      if (isInitialChunk) {
+        int index = railAdapter.indexOfChat(chatId());
+        if (index != -1) {
+          ((LinearLayoutManager) railRecyclerView.getLayoutManager()).scrollToPositionWithOffset(index, Screen.dp(RAIL_WIDTH_DP));
+        }
+      }
+    });
   }
 
   @Override
@@ -189,8 +266,12 @@ public class ForumTopicsController extends RecyclerViewController<ForumTopicsCon
       return;
     }
     isLoading = true;
+    final int generation = topicsGeneration;
     int limit = initialLoadFinished ? 40 : Screen.calculateLoadingItems(Screen.dp(72f), 20);
     tdlib.client().send(new TdApi.GetForumTopics(chatId(), null, nextOffsetDate, nextOffsetMessageId, nextOffsetForumTopicId, limit), result -> runOnUiThreadOptional(() -> {
+      if (generation != topicsGeneration) {
+        return; // Late response for a previously displayed forum
+      }
       isLoading = false;
       boolean wasInitial = !initialLoadFinished;
       initialLoadFinished = true;
@@ -238,8 +319,9 @@ public class ForumTopicsController extends RecyclerViewController<ForumTopicsCon
   }
 
   private void refetchTopic (int forumTopicId) {
+    final int generation = topicsGeneration;
     tdlib.client().send(new TdApi.GetForumTopic(chatId(), forumTopicId), result -> runOnUiThreadOptional(() -> {
-      if (result.getConstructor() != TdApi.ForumTopic.CONSTRUCTOR) {
+      if (generation != topicsGeneration || result.getConstructor() != TdApi.ForumTopic.CONSTRUCTOR) {
         return;
       }
       TdApi.ForumTopic topic = (TdApi.ForumTopic) result;
@@ -326,12 +408,253 @@ public class ForumTopicsController extends RecyclerViewController<ForumTopicsCon
     }
   }
 
+  // Chat rail
+
+  @Override
+  public void onChatAdded (TdlibChatList chatList, TdApi.Chat chat, int atIndex, Tdlib.ChatChange changeInfo) {
+    runOnUiThreadOptional(() -> railAdapter.addChat(chat, atIndex));
+  }
+
+  @Override
+  public void onChatRemoved (TdlibChatList chatList, TdApi.Chat chat, int fromIndex, Tdlib.ChatChange changeInfo) {
+    runOnUiThreadOptional(() -> railAdapter.removeChat(fromIndex));
+  }
+
+  @Override
+  public void onChatMoved (TdlibChatList chatList, TdApi.Chat chat, int fromIndex, int toIndex, Tdlib.ChatChange changeInfo) {
+    runOnUiThreadOptional(() -> railAdapter.moveChat(fromIndex, toIndex));
+  }
+
+  @Override
+  public void onChatChanged (TdlibChatList chatList, TdApi.Chat chat, int index, Tdlib.ChatChange changeInfo) {
+    runOnUiThreadOptional(() -> railAdapter.updateChat(index));
+  }
+
+  @Override
+  public void onChatListItemChanged (TdlibChatList chatList, TdApi.Chat chat, int changeType) {
+    runOnUiThreadOptional(() -> {
+      int index = railAdapter.indexOfChat(chat.id);
+      if (index != -1) {
+        railAdapter.updateChat(index);
+      }
+    });
+  }
+
+  private void onRailChatClick (long clickedChatId) {
+    if (clickedChatId == chatId() || navigationController() == null) {
+      return;
+    }
+    if (tdlib.isForum(clickedChatId)) {
+      // openChat would push a second ForumTopicsController on top - swap in place instead
+      switchToForum(clickedChatId);
+    } else {
+      tdlib.ui().openChat(this, clickedChatId, new TdlibUi.ChatOpenParameters().keepStack());
+    }
+  }
+
+  private void switchToForum (long newChatId) {
+    long oldChatId = chatId();
+    tdlib.listeners().unsubscribeFromMessageUpdates(oldChatId, this);
+    for (TdApi.ForumTopic topic : topics) {
+      tdlib.listeners().unsubscribeFromForumTopicUpdates(oldChatId, topic.info.forumTopicId, this);
+    }
+    setArguments(new Args(newChatId));
+    topics.clear();
+    initialLoadFinished = false;
+    isLoading = false;
+    endReached = false;
+    nextOffsetDate = 0;
+    nextOffsetMessageId = 0;
+    nextOffsetForumTopicId = 0;
+    topicsGeneration++;
+    tdlib.listeners().subscribeToMessageUpdates(newChatId, this);
+    buildCells();
+    ((LinearLayoutManager) getRecyclerView().getLayoutManager()).scrollToPositionWithOffset(0, 0);
+    loadMore();
+    int oldIndex = railAdapter.indexOfChat(oldChatId);
+    if (oldIndex != -1) {
+      railAdapter.updateChat(oldIndex);
+    }
+    int newIndex = railAdapter.indexOfChat(newChatId);
+    if (newIndex != -1) {
+      railAdapter.updateChat(newIndex);
+    }
+    setName(getName());
+  }
+
+  @Override
+  public boolean passNameToHeader () {
+    return true;
+  }
+
   @Override
   public void destroy () {
     super.destroy();
     tdlib.listeners().unsubscribeFromMessageUpdates(chatId(), this);
     for (TdApi.ForumTopic topic : topics) {
       tdlib.listeners().unsubscribeFromForumTopicUpdates(chatId(), topic.info.forumTopicId, this);
+    }
+    if (chatListSlice != null) {
+      chatListSlice.performDestroy();
+    }
+    if (railRecyclerView != null) {
+      Views.destroyRecyclerView(railRecyclerView);
+    }
+  }
+
+  private class RailAdapter extends RecyclerView.Adapter<RailHolder> {
+    private final ArrayList<TdApi.Chat> chats = new ArrayList<>();
+
+    void addChats (List<TdApi.Chat> newChats) {
+      int startIndex = chats.size();
+      chats.addAll(newChats);
+      notifyItemRangeInserted(startIndex, newChats.size());
+    }
+
+    void addChat (TdApi.Chat chat, int atIndex) {
+      if (atIndex >= 0 && atIndex <= chats.size()) {
+        chats.add(atIndex, chat);
+        notifyItemInserted(atIndex);
+      }
+    }
+
+    void removeChat (int fromIndex) {
+      if (fromIndex >= 0 && fromIndex < chats.size()) {
+        chats.remove(fromIndex);
+        notifyItemRemoved(fromIndex);
+      }
+    }
+
+    void moveChat (int fromIndex, int toIndex) {
+      if (fromIndex >= 0 && fromIndex < chats.size() && toIndex >= 0 && toIndex < chats.size()) {
+        chats.add(toIndex, chats.remove(fromIndex));
+        notifyItemMoved(fromIndex, toIndex);
+      }
+    }
+
+    void updateChat (int index) {
+      if (index >= 0 && index < chats.size()) {
+        notifyItemChanged(index);
+      }
+    }
+
+    int indexOfChat (long chatId) {
+      for (int i = 0; i < chats.size(); i++) {
+        if (chats.get(i).id == chatId) {
+          return i;
+        }
+      }
+      return -1;
+    }
+
+    @NonNull
+    @Override
+    public RailHolder onCreateViewHolder (@NonNull ViewGroup parent, int viewType) {
+      ChatRailItemView view = new ChatRailItemView(parent.getContext(), tdlib);
+      view.setLayoutParams(new RecyclerView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Screen.dp(RAIL_WIDTH_DP)));
+      view.setOnClickListener(v -> onRailChatClick(((ChatRailItemView) v).getChatId()));
+      addThemeInvalidateListener(view);
+      return new RailHolder(view);
+    }
+
+    @Override
+    public void onBindViewHolder (@NonNull RailHolder holder, int position) {
+      TdApi.Chat chat = chats.get(position);
+      ((ChatRailItemView) holder.itemView).setChat(chat, chat.id == chatId());
+    }
+
+    @Override
+    public void onViewAttachedToWindow (@NonNull RailHolder holder) {
+      ((ChatRailItemView) holder.itemView).attach();
+    }
+
+    @Override
+    public void onViewDetachedFromWindow (@NonNull RailHolder holder) {
+      ((ChatRailItemView) holder.itemView).detach();
+    }
+
+    @Override
+    public int getItemCount () {
+      return chats.size();
+    }
+  }
+
+  private static class RailHolder extends RecyclerView.ViewHolder {
+    RailHolder (View itemView) {
+      super(itemView);
+    }
+  }
+
+  private static class ChatRailItemView extends View implements AttachDelegate, Destroyable {
+    private final Tdlib tdlib;
+    private final AvatarReceiver avatarReceiver;
+    private final Counter counter;
+    private final RectF selectionRect = new RectF();
+    private long chatId;
+    private boolean isSelected;
+
+    ChatRailItemView (Context context, Tdlib tdlib) {
+      super(context);
+      this.tdlib = tdlib;
+      this.avatarReceiver = new AvatarReceiver(this);
+      this.counter = new Counter.Builder().callback(this).outlineColor(ColorId.filling).build();
+    }
+
+    long getChatId () {
+      return chatId;
+    }
+
+    void setChat (TdApi.Chat chat, boolean isSelected) {
+      this.chatId = chat.id;
+      this.isSelected = isSelected;
+      avatarReceiver.requestChat(tdlib, chat.id, AvatarReceiver.Options.NONE);
+      int unreadCount = chat.unreadCount > 0 ? chat.unreadCount : chat.isMarkedAsUnread ? Tdlib.CHAT_MARKED_AS_UNREAD : 0;
+      counter.setCount(unreadCount, !tdlib.chatNotificationsEnabled(chat), false);
+      invalidate();
+    }
+
+    @Override
+    protected void onMeasure (int widthMeasureSpec, int heightMeasureSpec) {
+      setMeasuredDimension(View.MeasureSpec.getSize(widthMeasureSpec), Screen.dp(RAIL_WIDTH_DP));
+    }
+
+    @Override
+    protected void onDraw (Canvas c) {
+      if (isSelected) {
+        selectionRect.set(Screen.dp(5f), Screen.dp(5f), getWidth() - Screen.dp(5f), getHeight() - Screen.dp(5f));
+        c.drawRoundRect(selectionRect, Screen.dp(16f), Screen.dp(16f), Paints.fillingPaint(Theme.getColor(ColorId.fillingPressed)));
+      }
+      int radius = Screen.dp(24f);
+      int centerX = getWidth() / 2;
+      int centerY = getHeight() / 2;
+      avatarReceiver.setBounds(centerX - radius, centerY - radius, centerX + radius, centerY + radius);
+      if (avatarReceiver.needPlaceholder()) {
+        avatarReceiver.drawPlaceholder(c);
+      }
+      avatarReceiver.draw(c);
+      // Badge on the top-right edge of the avatar circle, like VerticalChatView
+      float displayRadius = avatarReceiver.getDisplayRadius();
+      double topRightRadians = Math.toRadians(135f);
+      float badgeCenterX = avatarReceiver.getRight() - displayRadius;
+      float badgeCenterY = avatarReceiver.getTop() + displayRadius;
+      float x = badgeCenterX + (float) ((double) displayRadius * Math.sin(topRightRadians));
+      float y = badgeCenterY + (float) ((double) displayRadius * Math.cos(topRightRadians));
+      counter.draw(c, x, y, Gravity.RIGHT, 1f);
+    }
+
+    @Override
+    public void attach () {
+      avatarReceiver.attach();
+    }
+
+    @Override
+    public void detach () {
+      avatarReceiver.detach();
+    }
+
+    @Override
+    public void performDestroy () {
+      avatarReceiver.destroy();
     }
   }
 }
