@@ -8765,6 +8765,18 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
     });
   }
 
+  public final boolean canRecognizeSpeech () {
+    if (msg.content == null || msg.content.getConstructor() != TdApi.MessageVoiceNote.CONSTRUCTOR) {
+      return false;
+    }
+    TdApi.SpeechRecognitionResult result = ((TdApi.MessageVoiceNote) msg.content).voiceNote.speechRecognitionResult;
+    if (result != null && result.getConstructor() == TdApi.SpeechRecognitionResultText.CONSTRUCTOR) {
+      return false; // Already transcribed
+    }
+    TdApi.MessageProperties properties = lastMessageProperties(msg.id);
+    return properties.canRecognizeSpeech;
+  }
+
   @AnyThread
   @NonNull
   public TdApi.MessageProperties lastMessageProperties (long messageId) {

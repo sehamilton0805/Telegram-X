@@ -28,6 +28,7 @@ import org.drinkless.tdlib.TdApi;
 import org.thunderdog.challegram.component.chat.MessageView;
 import org.thunderdog.challegram.component.chat.MessagesManager;
 import org.thunderdog.challegram.config.Config;
+import org.thunderdog.challegram.R;
 import org.thunderdog.challegram.core.Lang;
 import org.thunderdog.challegram.loader.ComplexReceiver;
 import org.thunderdog.challegram.loader.DoubleImageReceiver;
@@ -57,6 +58,7 @@ import me.vkryl.android.animator.VariableFloat;
 import me.vkryl.core.BitwiseUtils;
 import me.vkryl.core.ColorUtils;
 import me.vkryl.core.MathUtils;
+import me.vkryl.core.StringUtils;
 import tgx.td.Td;
 import tgx.td.TdConstants;
 
@@ -254,6 +256,48 @@ public class TGMessageFile extends TGMessage {
     return newFile(context, message, message.content);
   }
 
+  // Recognized speech is appended to the caption slot below the voice row: the caption
+  // machinery already handles measuring, media and animated swaps on updateMessageContent
+  private static TdApi.FormattedText voiceCaptionWithTranscription (TdApi.MessageVoiceNote voiceNote) {
+    TdApi.SpeechRecognitionResult result = voiceNote.voiceNote.speechRecognitionResult;
+    TdApi.FormattedText caption = voiceNote.caption;
+    if (result == null) {
+      return caption;
+    }
+    String recognized;
+    switch (result.getConstructor()) {
+      case TdApi.SpeechRecognitionResultText.CONSTRUCTOR:
+        recognized = ((TdApi.SpeechRecognitionResultText) result).text;
+        break;
+      case TdApi.SpeechRecognitionResultPending.CONSTRUCTOR: {
+        String partialText = ((TdApi.SpeechRecognitionResultPending) result).partialText;
+        recognized = (partialText != null ? partialText : "") + "…";
+        break;
+      }
+      case TdApi.SpeechRecognitionResultError.CONSTRUCTOR:
+        recognized = Lang.getString(R.string.RecognizeSpeechError);
+        break;
+      default:
+        return caption;
+    }
+    if (StringUtils.isEmpty(recognized)) {
+      return caption;
+    }
+    TdApi.TextEntity italic = new TdApi.TextEntity(0, recognized.length(), new TdApi.TextEntityTypeItalic());
+    if (caption == null || StringUtils.isEmpty(caption.text)) {
+      return new TdApi.FormattedText(recognized, new TdApi.TextEntity[] {italic});
+    }
+    // Caption goes first, its entity offsets stay untouched
+    italic.offset = caption.text.length() + 1;
+    int captionEntityCount = caption.entities != null ? caption.entities.length : 0;
+    TdApi.TextEntity[] entities = new TdApi.TextEntity[captionEntityCount + 1];
+    if (captionEntityCount > 0) {
+      System.arraycopy(caption.entities, 0, entities, 0, captionEntityCount);
+    }
+    entities[captionEntityCount] = italic;
+    return new TdApi.FormattedText(caption.text + "\n" + recognized, entities);
+  }
+
   private CaptionedFile newFile (TGMessage context, TdApi.Message message, TdApi.MessageContent content) {
     FileComponent component;
     TdApi.FormattedText caption;
@@ -275,7 +319,7 @@ public class TGMessageFile extends TGMessage {
       case TdApi.MessageVoiceNote.CONSTRUCTOR: {
         TdApi.MessageVoiceNote voiceNote = (TdApi.MessageVoiceNote) content;
         component = new FileComponent(context, message, voiceNote.voiceNote, message, context.manager);
-        caption = voiceNote.caption;
+        caption = voiceCaptionWithTranscription(voiceNote);
         disallowTouch = false;
         break;
       }
@@ -452,7 +496,7 @@ public class TGMessageFile extends TGMessage {
         }
         case TdApi.MessageVoiceNote.CONSTRUCTOR: {
           TdApi.MessageVoiceNote voiceNote = (TdApi.MessageVoiceNote) content;
-          serverCaption = voiceNote.caption;
+          serverCaption = voiceCaptionWithTranscription(voiceNote);
           if (component.isVoice()) {
             component.setVoice(voiceNote.voiceNote, getMessage(messageId), manager);
           } else {
