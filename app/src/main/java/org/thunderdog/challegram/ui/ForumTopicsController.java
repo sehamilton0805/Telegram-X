@@ -30,6 +30,7 @@ import org.thunderdog.challegram.R;
 import org.thunderdog.challegram.core.Lang;
 import org.thunderdog.challegram.data.AvatarPlaceholder;
 import org.thunderdog.challegram.data.ContentPreview;
+import org.thunderdog.challegram.data.TD;
 import org.thunderdog.challegram.loader.AvatarReceiver;
 import org.thunderdog.challegram.telegram.ChatListListener;
 import org.thunderdog.challegram.telegram.ForumTopicInfoListener;
@@ -44,6 +45,7 @@ import org.thunderdog.challegram.theme.Theme;
 import org.thunderdog.challegram.tool.Paints;
 import org.thunderdog.challegram.tool.Screen;
 import org.thunderdog.challegram.tool.Views;
+import org.thunderdog.challegram.util.StringList;
 import org.thunderdog.challegram.util.text.Counter;
 import org.thunderdog.challegram.util.text.FormattedText;
 import org.thunderdog.challegram.util.text.Letters;
@@ -57,10 +59,11 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 import me.vkryl.android.widget.FrameLayoutFix;
+import me.vkryl.core.collection.IntList;
 import me.vkryl.core.lambda.Destroyable;
 import tgx.td.ChatPosition;
 
-public class ForumTopicsController extends RecyclerViewController<ForumTopicsController.Args> implements View.OnClickListener, MessageListener, ForumTopicInfoListener, ChatListListener {
+public class ForumTopicsController extends RecyclerViewController<ForumTopicsController.Args> implements View.OnClickListener, View.OnLongClickListener, MessageListener, ForumTopicInfoListener, ChatListListener {
   public static class Args {
     public final long chatId;
 
@@ -242,7 +245,14 @@ public class ForumTopicsController extends RecyclerViewController<ForumTopicsCon
     if (!initialLoadFinished) {
       items.add(new ListItem(ListItem.TYPE_PROGRESS));
     } else if (topics.isEmpty()) {
-      items.add(new ListItem(ListItem.TYPE_EMPTY, 0, 0, R.string.NothingFound));
+      if (canCreateTopic()) {
+        items.add(new ListItem(ListItem.TYPE_EMPTY_OFFSET_SMALL));
+        items.add(new ListItem(ListItem.TYPE_SHADOW_TOP));
+        items.add(new ListItem(ListItem.TYPE_SETTING, R.id.btn_createTopic, R.drawable.baseline_add_24, R.string.CreateTopic).setTextColorId(ColorId.textNeutral));
+        items.add(new ListItem(ListItem.TYPE_SHADOW_BOTTOM));
+      } else {
+        items.add(new ListItem(ListItem.TYPE_EMPTY, 0, 0, R.string.NothingFound));
+      }
     } else {
       items.add(new ListItem(ListItem.TYPE_EMPTY_OFFSET_SMALL));
       items.add(new ListItem(ListItem.TYPE_SHADOW_TOP));
@@ -254,6 +264,10 @@ public class ForumTopicsController extends RecyclerViewController<ForumTopicsCon
           items.add(new ListItem(ListItem.TYPE_SEPARATOR));
         }
         items.add(new ListItem(ListItem.TYPE_CHAT_BETTER, R.id.btn_forumTopic).setData(topic).setLongId(topic.info.forumTopicId));
+      }
+      if (endReached && canCreateTopic()) {
+        items.add(new ListItem(ListItem.TYPE_SEPARATOR));
+        items.add(new ListItem(ListItem.TYPE_SETTING, R.id.btn_createTopic, R.drawable.baseline_add_24, R.string.CreateTopic).setTextColorId(ColorId.textNeutral));
       }
       items.add(new ListItem(ListItem.TYPE_SHADOW_BOTTOM));
       items.add(new ListItem(ListItem.TYPE_LIST_INFO_VIEW));
@@ -400,12 +414,180 @@ public class ForumTopicsController extends RecyclerViewController<ForumTopicsCon
   @Override
   public void onClick (View v) {
     ListItem item = (ListItem) v.getTag();
-    if (item != null && item.getId() == R.id.btn_forumTopic) {
+    if (item == null) {
+      return;
+    }
+    if (item.getId() == R.id.btn_forumTopic) {
       TdApi.ForumTopic topic = (TdApi.ForumTopic) item.getData();
       tdlib.ui().openChat(this, chatId(), new TdlibUi.ChatOpenParameters()
         .keepStack()
         .messageTopic(new TdApi.MessageTopicForum(topic.info.forumTopicId)));
+    } else if (item.getId() == R.id.btn_createTopic) {
+      showCreateTopic();
     }
+  }
+
+  @Override
+  public boolean onLongClick (View v) {
+    ListItem item = (ListItem) v.getTag();
+    if (item != null && item.getId() == R.id.btn_forumTopic) {
+      showTopicOptions((TdApi.ForumTopic) item.getData());
+      return true;
+    }
+    return false;
+  }
+
+  // Topic management
+
+  private boolean canManageTopics () {
+    TdApi.ChatMemberStatus status = tdlib.chatStatus(chatId());
+    if (status == null) {
+      return false;
+    }
+    switch (status.getConstructor()) {
+      case TdApi.ChatMemberStatusCreator.CONSTRUCTOR:
+        return true;
+      case TdApi.ChatMemberStatusAdministrator.CONSTRUCTOR:
+        return ((TdApi.ChatMemberStatusAdministrator) status).rights.canManageTopics;
+    }
+    return false;
+  }
+
+  private boolean canCreateTopic () {
+    if (canManageTopics()) {
+      return true;
+    }
+    TdApi.Chat chat = tdlib.chat(chatId());
+    if (chat == null || chat.permissions == null || !chat.permissions.canCreateTopics) {
+      return false;
+    }
+    TdApi.ChatMemberStatus status = tdlib.chatStatus(chatId());
+    if (status != null && status.getConstructor() == TdApi.ChatMemberStatusRestricted.CONSTRUCTOR) {
+      return ((TdApi.ChatMemberStatusRestricted) status).permissions.canCreateTopics;
+    }
+    return true;
+  }
+
+  private void showTopicOptions (TdApi.ForumTopic topic) {
+    boolean canManage = canManageTopics();
+    boolean canEdit = canManage || topic.info.isOutgoing;
+    IntList ids = new IntList(4);
+    StringList strings = new StringList(4);
+    IntList icons = new IntList(4);
+    ids.append(R.id.btn_topicMute);
+    strings.append(R.string.Notifications);
+    icons.append(R.drawable.baseline_notifications_24);
+    if (canManage) {
+      ids.append(R.id.btn_topicPin);
+      strings.append(topic.isPinned ? R.string.Unpin : R.string.PinToTop);
+      icons.append(R.drawable.deproko_baseline_pin_24);
+    }
+    if (canEdit) {
+      ids.append(R.id.btn_topicRename);
+      strings.append(R.string.TopicRename);
+      icons.append(R.drawable.baseline_edit_24);
+      ids.append(R.id.btn_topicClose);
+      strings.append(topic.info.isClosed ? R.string.TopicReopen : R.string.TopicClose);
+      // No lock-open drawable in the project - replay arrow reads as "reopen"
+      icons.append(topic.info.isClosed ? R.drawable.baseline_replay_24 : R.drawable.baseline_lock_24);
+    }
+    showOptions(topic.info.name, ids.get(), strings.get(), null, icons.get(), (optionItemView, id) -> {
+      if (id == R.id.btn_topicMute) {
+        showTopicMuteOptions(topic);
+      } else if (id == R.id.btn_topicPin) {
+        tdlib.client().send(new TdApi.ToggleForumTopicIsPinned(chatId(), topic.info.forumTopicId, !topic.isPinned), tdlib.okHandler(this::reloadTopics));
+      } else if (id == R.id.btn_topicRename) {
+        showRenameTopic(topic);
+      } else if (id == R.id.btn_topicClose) {
+        tdlib.client().send(new TdApi.ToggleForumTopicIsClosed(chatId(), topic.info.forumTopicId, !topic.info.isClosed), tdlib.okHandler());
+      }
+      return true;
+    });
+  }
+
+  private int topicMuteFor (TdApi.ForumTopic topic) {
+    if (topic.notificationSettings == null || topic.notificationSettings.useDefaultMuteFor) {
+      return tdlib.chatMuteFor(chatId());
+    }
+    return topic.notificationSettings.muteFor;
+  }
+
+  private void showTopicMuteOptions (TdApi.ForumTopic topic) {
+    IntList ids = new IntList(5);
+    IntList icons = new IntList(5);
+    StringList strings = new StringList(5);
+    int muteFor = topicMuteFor(topic);
+    boolean mutedForever = TD.isMutedForever(muteFor);
+    TdlibUi.fillMuteOptions(ids, icons, strings, null, muteFor > 0, !mutedForever, !mutedForever, false, false, null, false);
+    showOptions(topic.info.name, ids.get(), strings.get(), null, icons.get(), (optionItemView, id) -> {
+      int newMuteFor = TdlibUi.getMuteDurationForId(id);
+      if (newMuteFor >= 0) {
+        setTopicMuteFor(topic, newMuteFor);
+      }
+      return true;
+    });
+  }
+
+  private void setTopicMuteFor (TdApi.ForumTopic topic, int muteFor) {
+    TdApi.ChatNotificationSettings settings = topic.notificationSettings;
+    if (settings == null) {
+      return;
+    }
+    // Topic-level "default" falls back to the forum chat's setting, one level down from Tdlib.setMuteFor
+    settings.useDefaultMuteFor = muteFor == 0 && tdlib.chatMuteFor(chatId()) == 0;
+    settings.muteFor = muteFor;
+    tdlib.client().send(new TdApi.SetForumTopicNotificationSettings(chatId(), topic.info.forumTopicId, settings), tdlib.okHandler());
+  }
+
+  private void showRenameTopic (TdApi.ForumTopic topic) {
+    openInputAlert(Lang.getString(R.string.TopicRename), Lang.getString(R.string.TopicName), R.string.Save, R.string.Cancel, topic.info.name, (inputView, result) -> {
+      String name = result.trim();
+      if (name.isEmpty() || name.length() > 128) {
+        return false;
+      }
+      tdlib.client().send(new TdApi.EditForumTopic(chatId(), topic.info.forumTopicId, name, false, 0), tdlib.okHandler());
+      return true;
+    }, true);
+  }
+
+  private static final int[] TOPIC_ICON_COLORS = {0x6FB9F0, 0xFFD67E, 0xCB86DB, 0x8EEE98, 0xFF93B2, 0xFB6F5F};
+
+  private void showCreateTopic () {
+    openInputAlert(Lang.getString(R.string.CreateTopic), Lang.getString(R.string.TopicName), R.string.CreateTopic, R.string.Cancel, null, (inputView, result) -> {
+      String name = result.trim();
+      if (name.isEmpty() || name.length() > 128) {
+        return false;
+      }
+      int color = TOPIC_ICON_COLORS[Math.abs(name.hashCode()) % TOPIC_ICON_COLORS.length];
+      tdlib.client().send(new TdApi.CreateForumTopic(chatId(), name, false, new TdApi.ForumTopicIcon(color, 0)), createResult -> {
+        if (createResult.getConstructor() == TdApi.ForumTopicInfo.CONSTRUCTOR) {
+          reloadTopics();
+        } else {
+          tdlib.okHandler().onResult(createResult);
+        }
+      });
+      return true;
+    }, true);
+  }
+
+  // Full reload keeping subscriptions to the chat itself: used when server-side ordering
+  // changes (pin/unpin) or the topic set changes in a way updates don't cover (create)
+  private void reloadTopics () {
+    runOnUiThreadOptional(() -> {
+      for (TdApi.ForumTopic topic : topics) {
+        tdlib.listeners().unsubscribeFromForumTopicUpdates(chatId(), topic.info.forumTopicId, this);
+      }
+      topics.clear();
+      initialLoadFinished = false;
+      isLoading = false;
+      endReached = false;
+      nextOffsetDate = 0;
+      nextOffsetMessageId = 0;
+      nextOffsetForumTopicId = 0;
+      topicsGeneration++;
+      buildCells();
+      loadMore();
+    });
   }
 
   // Chat rail

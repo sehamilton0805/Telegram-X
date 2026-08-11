@@ -177,6 +177,11 @@
   <item type="id" name="controller_call_list" />
   <item type="id" name="controller_forumTopics" />
   <item type="id" name="btn_forumTopic" />
+  <item type="id" name="btn_createTopic" />
+  <item type="id" name="btn_topicMute" />
+  <item type="id" name="btn_topicPin" />
+  <item type="id" name="btn_topicClose" />
+  <item type="id" name="btn_topicRename" />
   <item type="id" name="controller_call" />
   <item type="id" name="controller_people" />
   <item type="id" name="controller_settings" />

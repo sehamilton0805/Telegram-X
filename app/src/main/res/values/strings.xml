@@ -310,6 +310,11 @@
   <string name="xCalls_other">%1$s calls</string>
   <string name="xTopics_one">%1$s topic</string>
   <string name="xTopics_other">%1$s topics</string>
+  <string name="CreateTopic">Создать тему</string>
+  <string name="TopicName">Название темы</string>
+  <string name="TopicRename">Переименовать тему</string>
+  <string name="TopicClose">Закрыть тему</string>
+  <string name="TopicReopen">Открыть тему</string>
   <string name="general_Messages">Messages</string>
   <string name="SelectChat">Select Chat</string>
   <string name="Message">Message</string>
