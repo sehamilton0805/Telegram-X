@@ -472,6 +472,61 @@ public class MessagesController extends ViewController<MessagesController.Argume
     return true;
   }
 
+  // Paid (star) reactions: pending stars are committed after a short undo window,
+  // on leaving the chat, or when a different message gets a paid reaction
+  private long paidReactionChatId, paidReactionMessageId;
+  private int paidReactionPendingCount;
+  private int paidReactionGeneration;
+
+  public boolean hasPendingPaidReaction (TGMessage msg) {
+    return paidReactionPendingCount > 0 && msg.getChatId() == paidReactionChatId && msg.getId() == paidReactionMessageId;
+  }
+
+  private void sendPaidReaction (TGMessage msg, View anchorView) {
+    long chatId = msg.getChatId(), messageId = msg.getId();
+    if (paidReactionPendingCount > 0 && (paidReactionChatId != chatId || paidReactionMessageId != messageId)) {
+      commitPaidReactionsNow();
+    }
+    paidReactionChatId = chatId;
+    paidReactionMessageId = messageId;
+    TdApi.PaidReactionType type = tdlib.defaultPaidReaction();
+    if (type == null) {
+      type = new TdApi.PaidReactionTypeRegular();
+    }
+    tdlib.client().send(new TdApi.AddPendingPaidMessageReaction(chatId, messageId, 1, type), tdlib.okHandler());
+    paidReactionPendingCount++;
+    final int generation = ++paidReactionGeneration;
+    UI.post(() -> {
+      if (generation == paidReactionGeneration) {
+        commitPaidReactionsNow();
+      }
+    }, 5000);
+    if (anchorView != null) {
+      context().tooltipManager().builder(anchorView).show(tdlib, Lang.getString(R.string.PaidReactionPending, paidReactionPendingCount)).hideDelayed();
+    }
+  }
+
+  private void commitPaidReactionsNow () {
+    if (paidReactionPendingCount > 0) {
+      tdlib.client().send(new TdApi.CommitPendingPaidMessageReactions(paidReactionChatId, paidReactionMessageId), tdlib.okHandler());
+      clearPendingPaidReaction();
+    }
+  }
+
+  private void undoPaidReaction () {
+    if (paidReactionPendingCount > 0) {
+      tdlib.client().send(new TdApi.RemovePendingPaidMessageReactions(paidReactionChatId, paidReactionMessageId), tdlib.okHandler());
+      clearPendingPaidReaction();
+    }
+  }
+
+  private void clearPendingPaidReaction () {
+    paidReactionPendingCount = 0;
+    paidReactionChatId = 0;
+    paidReactionMessageId = 0;
+    paidReactionGeneration++;
+  }
+
   // Message effect chosen for the next composed message; consumed by sendText.
   // Bound to the chat it was picked in - the controller instance is reused across chats
   private long pendingMessageEffectId;
@@ -4262,6 +4317,8 @@ public class MessagesController extends ViewController<MessagesController.Argume
   @Override
   public void onBlur () {
     saveDraft();
+    // Don't lose pending paid reactions when leaving the chat
+    commitPaidReactionsNow();
 
     super.onBlur();
 
@@ -5891,6 +5948,12 @@ public class MessagesController extends ViewController<MessagesController.Argume
         return true;
       } else if (id == R.id.btn_recognizeSpeech) {
         tdlib.client().send(new TdApi.RecognizeSpeech(selectedMessage.getChatId(), selectedMessage.getId()), tdlib.okHandler());
+        return true;
+      } else if (id == R.id.btn_sendPaidReaction) {
+        sendPaidReaction(selectedMessage, itemView);
+        return true;
+      } else if (id == R.id.btn_undoPaidReaction) {
+        undoPaidReaction();
         return true;
       } else if (id == R.id.btn_saveGif) {
         if (selectedMessageTag != null) {

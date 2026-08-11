@@ -189,6 +189,8 @@
   <item type="id" name="btn_myStars" />
   <item type="id" name="btn_starTransaction" />
   <item type="id" name="btn_sendWithEffect" />
+  <item type="id" name="btn_sendPaidReaction" />
+  <item type="id" name="btn_undoPaidReaction" />
   <item type="id" name="controller_starTransactions" />
   <item type="id" name="controller_call" />
   <item type="id" name="controller_people" />

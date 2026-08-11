@@ -350,6 +350,9 @@
   <string name="SendEffectChange">Эффект: изменить</string>
   <string name="EffectNone">Без эффекта</string>
   <string name="EffectPending">Эффект %1$s будет добавлен к следующему сообщению</string>
+  <string name="SendPaidReaction">Отправить ⭐-реакцию</string>
+  <string name="UndoPaidReaction">Отменить ⭐-реакцию</string>
+  <string name="PaidReactionPending">⭐ ×%1$d — отправится через 5 секунд</string>
   <string name="general_Messages">Messages</string>
   <string name="SelectChat">Select Chat</string>
   <string name="Message">Message</string>

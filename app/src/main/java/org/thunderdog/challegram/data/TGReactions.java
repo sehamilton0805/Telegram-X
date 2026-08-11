@@ -115,6 +115,17 @@ public class TGReactions implements Destroyable, ReactionLoadListener {
     return reactions;
   }
 
+  public long getTotalPaidStarCount () {
+    if (reactions == null || reactions.paidReactors == null) {
+      return 0;
+    }
+    long total = 0;
+    for (TdApi.PaidReactor reactor : reactions.paidReactors) {
+      total += reactor.starCount;
+    }
+    return total;
+  }
+
   public void setReactions (@Nullable TdApi.MessageReactions reactions) {
     this.reactionsListEntry.clear();
     this.tdReactionsMap.clear();

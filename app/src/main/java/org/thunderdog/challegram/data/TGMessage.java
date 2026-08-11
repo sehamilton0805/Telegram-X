@@ -250,6 +250,7 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
 
   private final Counter viewCounter, replyCounter, shareCounter, isPinned, isEdited, isRestricted, isUnsupported;
   private final Counter effectIcon;
+  private final Counter paidReactionsCounter;
   private Counter shrinkedReactionsCounter, reactionsCounter;
   private final ReactionsCounterDrawable reactionsCounterDrawable;
   private final Counter isChannelHeaderCounter;
@@ -466,6 +467,14 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
       .drawable(R.drawable.baseline_bolt_16, 16f, 0f, Gravity.CENTER_HORIZONTAL)
       .build();
     this.effectIcon.showHide(true, false);
+    this.paidReactionsCounter = new Counter.Builder()
+      .noBackground()
+      .allBold(false)
+      .callback(this)
+      .drawable(R.drawable.baseline_premium_star_16, 16f, 3f, Gravity.LEFT)
+      .build();
+    // Seed before the first layout: the width sites read counter state, draw sites keep it fresh
+    this.paidReactionsCounter.setCount(messageReactions.getTotalPaidStarCount(), false, false);
     this.isRestricted = new Counter.Builder()
       .noBackground()
       .allBold(false)
@@ -2193,6 +2202,10 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
         right -= effectIcon.getScaledWidth(Screen.dp(COUNTER_ICON_MARGIN));
       }
 
+      paidReactionsCounter.setCount(messageReactions.getTotalPaidStarCount(), false, needAnimateChanges());
+      paidReactionsCounter.draw(c, right, top, Gravity.RIGHT, 1f, view, ColorId.iconLight);
+      right -= paidReactionsCounter.getScaledWidth(Screen.dp(COUNTER_ICON_MARGIN + COUNTER_ADD_MARGIN));
+
       if (shouldShowMessageRestrictedWarning()) {
         if (isRestrictedByTelegram()) {
           isRestricted.draw(c, right, top, Gravity.RIGHT, 1f, view, ColorId.NONE, isRestrictedCounterLastDrawRect);
@@ -3472,6 +3485,8 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
       max -= effectIcon.getScaledWidth(Screen.dp(COUNTER_ICON_MARGIN)) + Screen.dp(COUNTER_ADD_MARGIN);
     }
 
+    max -= paidReactionsCounter.getScaledWidth(Screen.dp(COUNTER_ICON_MARGIN + COUNTER_ADD_MARGIN));
+
     String authorName;
     if (forceForwardOrImportInfo()) {
       authorName = forwardInfo.getAuthorName();
@@ -4114,6 +4129,10 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
       startX += effectIcon.getScaledWidth(Screen.dp(COUNTER_ICON_MARGIN));
     }
 
+    paidReactionsCounter.setCount(messageReactions.getTotalPaidStarCount(), false, needAnimateChanges());
+    paidReactionsCounter.draw(c, startX, counterY, Gravity.LEFT, 1f, view, iconColorId);
+    startX += paidReactionsCounter.getScaledWidth(Screen.dp(COUNTER_ICON_MARGIN + COUNTER_ADD_MARGIN));
+
     if (translationStyleMode() == Settings.TRANSLATE_MODE_INLINE) {
       isTranslatedCounter.draw(c, startX, counterY, Gravity.LEFT, 1f, isTranslatedCounterLastDrawRect);
       startX += isTranslatedCounter.getScaledWidth(Screen.dp(COUNTER_ICON_MARGIN + COUNTER_ADD_MARGIN));
@@ -4175,6 +4194,7 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
     if (shouldShowEffectIcon()) {
       width += effectIcon.getScaledOrTargetWidth(Screen.dp(COUNTER_ICON_MARGIN), isTarget);
     }
+    width += paidReactionsCounter.getScaledOrTargetWidth(Screen.dp(COUNTER_ICON_MARGIN + COUNTER_ADD_MARGIN), isTarget);
     if (translationStyleMode() == Settings.TRANSLATE_MODE_INLINE) {
       width += isTranslatedCounter.getScaledOrTargetWidth(Screen.dp(COUNTER_ICON_MARGIN + COUNTER_ADD_MARGIN), isTarget);
     }
@@ -6686,7 +6706,7 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
             }
             break;
         }
-      } else if (counter == replyCounter || counter == shareCounter || counter == shrinkedReactionsCounter || counter == isPinned || counter == isTranslatedCounter) {
+      } else if (counter == replyCounter || counter == shareCounter || counter == shrinkedReactionsCounter || counter == isPinned || counter == isTranslatedCounter || counter == paidReactionsCounter) {
         if (useBubbles() || (flags & FLAG_HEADER_ENABLED) != 0) {
           layoutInfo();
         }
@@ -8806,6 +8826,19 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
         });
       }
     });
+  }
+
+  public final boolean canSendPaidReaction () {
+    TdApi.AvailableReactions availableReactions = this.messageAvailableReactions;
+    if (availableReactions == null) {
+      return false;
+    }
+    for (TdApi.AvailableReaction reaction : availableReactions.topReactions) {
+      if (reaction.type.getConstructor() == TdApi.ReactionTypePaid.CONSTRUCTOR) {
+        return true;
+      }
+    }
+    return false;
   }
 
   public final boolean canRecognizeSpeech () {
