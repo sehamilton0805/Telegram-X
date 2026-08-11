@@ -8600,6 +8600,15 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
         case TdApi.MessageChecklist.CONSTRUCTOR: {
           return new TGMessageChecklist(context, msg, ((TdApi.MessageChecklist) content).list);
         }
+        case TdApi.MessageGiveawayPrizeStars.CONSTRUCTOR: {
+          return new TGMessageGift(context, msg, (TdApi.MessageGiveawayPrizeStars) content);
+        }
+        case TdApi.MessageGift.CONSTRUCTOR: {
+          return new TGMessageGift(context, msg, (TdApi.MessageGift) content);
+        }
+        case TdApi.MessageUpgradedGift.CONSTRUCTOR: {
+          return new TGMessageGift(context, msg, (TdApi.MessageUpgradedGift) content);
+        }
         // unsupported
         case TdApi.MessageRichMessage.CONSTRUCTOR:
         case TdApi.MessageInvoice.CONSTRUCTOR:
@@ -8611,9 +8620,6 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
         case TdApi.MessageUsersShared.CONSTRUCTOR:
         case TdApi.MessageChatShared.CONSTRUCTOR:
         case TdApi.MessagePaidMedia.CONSTRUCTOR:
-        case TdApi.MessageGiveawayPrizeStars.CONSTRUCTOR:
-        case TdApi.MessageGift.CONSTRUCTOR:
-        case TdApi.MessageUpgradedGift.CONSTRUCTOR:
         case TdApi.MessageUpgradedGiftPurchaseOffer.CONSTRUCTOR:
         case TdApi.MessageUpgradedGiftPurchaseOfferRejected.CONSTRUCTOR:
         case TdApi.MessageRefundedUpgradedGift.CONSTRUCTOR:

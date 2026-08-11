@@ -625,6 +625,8 @@ public class SettingsController extends ViewController<Void> implements
     items.add(new ListItem(ListItem.TYPE_SETTING, R.id.btn_nameColor, R.drawable.baseline_palette_24, R.string.NameColor).setDrawModifier(nameColorModifier));
     items.add(new ListItem(ListItem.TYPE_SEPARATOR));
     items.add(new ListItem(ListItem.TYPE_SETTING, R.id.btn_profileColor, R.drawable.baseline_palette_24, R.string.ProfileColor).setDrawModifier(profileColorModifier));
+    items.add(new ListItem(ListItem.TYPE_SEPARATOR));
+    items.add(new ListItem(ListItem.TYPE_SETTING, R.id.btn_myStars, R.drawable.baseline_premium_star_24, R.string.MyStars));
     items.add(new ListItem(ListItem.TYPE_SHADOW_BOTTOM));
 
     TdApi.SuggestedAction[] actions = tdlib.getSuggestedActions();
@@ -1197,6 +1199,10 @@ public class SettingsController extends ViewController<Void> implements
       return;
     }
     final int viewId = v.getId();
+    if (viewId == R.id.btn_myStars) {
+      navigateTo(new StarTransactionsController(context, tdlib));
+      return;
+    }
     if (viewId == R.id.btn_nameColor) {
       TdApi.User me = tdlib.myUser();
       AccentColorSelector.showNameColors(this, me != null ? me.accentColorId : -1, colorId -> {

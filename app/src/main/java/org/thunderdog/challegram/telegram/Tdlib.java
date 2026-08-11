@@ -9550,9 +9550,20 @@ public class Tdlib implements TdlibProvider, Settings.SettingsChangeListener, Da
     // TODO ?
   }
 
+  private TdApi.StarAmount ownedStarAmount;
+
   @TdlibThread
   private void updateOwnedStarCount (TdApi.UpdateOwnedStarCount update) {
-    // TODO(stars)
+    synchronized (dataLock) {
+      this.ownedStarAmount = update.starAmount;
+    }
+  }
+
+  @Nullable
+  public TdApi.StarAmount ownedStarAmount () {
+    synchronized (dataLock) {
+      return ownedStarAmount;
+    }
   }
 
   @TdlibThread
