@@ -353,6 +353,10 @@
   <string name="SendPaidReaction">Отправить ⭐-реакцию</string>
   <string name="UndoPaidReaction">Отменить ⭐-реакцию</string>
   <string name="PaidReactionPending">⭐ ×%1$d — отправится через 5 секунд</string>
+  <string name="Story">История</string>
+  <string name="StoryViaMention">Вы упомянуты в этой истории</string>
+  <string name="StoryExpired">История недоступна или истекла</string>
+  <string name="StoryUnsupported">Этот тип истории пока не поддерживается</string>
   <string name="general_Messages">Messages</string>
   <string name="SelectChat">Select Chat</string>
   <string name="Message">Message</string>
