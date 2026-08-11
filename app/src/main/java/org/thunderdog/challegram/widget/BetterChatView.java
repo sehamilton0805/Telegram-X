@@ -320,6 +320,10 @@ public class BetterChatView extends BaseView implements Destroyable, RemoveHelpe
     }
   }
 
+  public void setChatAvatar (long chatId) {
+    avatarReceiver.requestChat(tdlib, chatId, AvatarReceiver.Options.NONE);
+  }
+
   public void setAvatar (ImageFile avatar, AvatarPlaceholder.Metadata avatarPlaceholderMetadata) {
     if (avatar != null) {
       avatarReceiver.requestSpecific(tdlib, avatar, AvatarReceiver.Options.NONE);

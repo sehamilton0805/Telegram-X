@@ -91,13 +91,12 @@ public class TGMessageStory extends TGMessageGiveawayBase {
     }));
   }
 
-  private void openStory (TdApi.Story storyObject) {
-    MediaItem item;
+  // Shared with the stories feed screen
+  public static MediaItem toMediaItem (org.thunderdog.challegram.BaseActivity context, org.thunderdog.challegram.telegram.Tdlib tdlib, TdApi.Story storyObject) {
     switch (storyObject.content.getConstructor()) {
       case TdApi.StoryContentPhoto.CONSTRUCTOR: {
         TdApi.StoryContentPhoto photo = (TdApi.StoryContentPhoto) storyObject.content;
-        item = MediaItem.valueOf(context(), tdlib, photo.photo, storyObject.caption);
-        break;
+        return MediaItem.valueOf(context, tdlib, photo.photo, storyObject.caption);
       }
       case TdApi.StoryContentVideo.CONSTRUCTOR: {
         TdApi.StoryVideo storyVideo = ((TdApi.StoryContentVideo) storyObject.content).video;
@@ -105,14 +104,15 @@ public class TGMessageStory extends TGMessageGiveawayBase {
         // MPEG4 thumbnails are not consumable by the photo pipeline - drop them
         TdApi.Thumbnail thumbnail = storyVideo.thumbnail != null && storyVideo.thumbnail.format.getConstructor() == TdApi.ThumbnailFormatJpeg.CONSTRUCTOR ? storyVideo.thumbnail : null;
         TdApi.Video video = new TdApi.Video((int) storyVideo.duration, storyVideo.width, storyVideo.height, "story.mp4", "video/mp4", storyVideo.hasStickers, true, storyVideo.minithumbnail, thumbnail, storyVideo.video);
-        item = MediaItem.valueOf(context(), tdlib, video, null, null, storyObject.caption);
-        break;
+        return MediaItem.valueOf(context, tdlib, video, null, null, storyObject.caption);
       }
-      default: {
-        UI.showToast(R.string.StoryUnsupported, Toast.LENGTH_SHORT);
-        return;
-      }
+      default:
+        return null;
     }
+  }
+
+  private void openStory (TdApi.Story storyObject) {
+    MediaItem item = toMediaItem(context(), tdlib, storyObject);
     if (item == null) {
       UI.showToast(R.string.StoryUnsupported, Toast.LENGTH_SHORT);
       return;

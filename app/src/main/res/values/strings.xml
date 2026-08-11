@@ -357,6 +357,9 @@
   <string name="StoryViaMention">Вы упомянуты в этой истории</string>
   <string name="StoryExpired">История недоступна или истекла</string>
   <string name="StoryUnsupported">Этот тип истории пока не поддерживается</string>
+  <string name="StoriesFeed">Истории</string>
+  <string name="StoriesFeedEmpty">Активных историй нет</string>
+  <string name="StoriesCount">Историй: %1$d</string>
   <string name="general_Messages">Messages</string>
   <string name="SelectChat">Select Chat</string>
   <string name="Message">Message</string>
