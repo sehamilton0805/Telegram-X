@@ -249,6 +249,7 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
   // counters
 
   private final Counter viewCounter, replyCounter, shareCounter, isPinned, isEdited, isRestricted, isUnsupported;
+  private final Counter effectIcon;
   private Counter shrinkedReactionsCounter, reactionsCounter;
   private final ReactionsCounterDrawable reactionsCounterDrawable;
   private final Counter isChannelHeaderCounter;
@@ -263,6 +264,7 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
   private final RectF isTranslatedCounterLastDrawRect = new RectF();
   private final RectF isRestrictedCounterLastDrawRect = new RectF();
   private final RectF isEditedCounterLastDrawRect = new RectF();
+  private final RectF effectIconLastDrawRect = new RectF();
 
 
   // forward values
@@ -457,6 +459,13 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
       .drawable(R.drawable.baseline_edit_12, 12f, 0f, Gravity.CENTER_HORIZONTAL)
       .build();
     this.isEdited.showHide(true, false);
+    this.effectIcon = new Counter.Builder()
+      .noBackground()
+      .allBold(false)
+      .callback(this)
+      .drawable(R.drawable.baseline_bolt_16, 16f, 0f, Gravity.CENTER_HORIZONTAL)
+      .build();
+    this.effectIcon.showHide(true, false);
     this.isRestricted = new Counter.Builder()
       .noBackground()
       .allBold(false)
@@ -2179,6 +2188,11 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
         }
       }
 
+      if (shouldShowEffectIcon()) {
+        effectIcon.draw(c, right, top, Gravity.RIGHT, 1f, view, ColorId.iconLight, effectIconLastDrawRect);
+        right -= effectIcon.getScaledWidth(Screen.dp(COUNTER_ICON_MARGIN));
+      }
+
       if (shouldShowMessageRestrictedWarning()) {
         if (isRestrictedByTelegram()) {
           isRestricted.draw(c, right, top, Gravity.RIGHT, 1f, view, ColorId.NONE, isRestrictedCounterLastDrawRect);
@@ -2923,6 +2937,12 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
       }
     }
 
+    if (shouldShowEffectIcon()) {
+      if (checkClickOnRect(effectIconLastDrawRect, x, y, Screen.dp(4))) {
+        return CLICK_TYPE_MESSAGE_EFFECT_ICON;
+      }
+    }
+
     if (replyData != null && replyData.isInside(x, y, useBubbles() && !useBubble())) {
       return CLICK_TYPE_REPLY;
     }
@@ -2970,6 +2990,10 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
               true, 60, R.string.message_edited, false
             ),
             2500);
+          break;
+        }
+        case CLICK_TYPE_MESSAGE_EFFECT_ICON: {
+          playMessageEffect();
           break;
         }
         case CLICK_TYPE_REPLY: {
@@ -3060,6 +3084,7 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
   private static final int CLICK_TYPE_MESSAGE_RESTRICTED_ICON = 5;
   private static final int CLICK_TYPE_MESSAGE_EDITED_ICON = 6;
   private static final int CLICK_TYPE_CHANNEL_MESSAGE_SENDER_ICON = 7;
+  private static final int CLICK_TYPE_MESSAGE_EFFECT_ICON = 8;
 
   private int clickType = CLICK_TYPE_NONE;
 
@@ -3441,6 +3466,10 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
       } else {
         max -= isEdited.getScaledWidth(Screen.dp(COUNTER_ICON_MARGIN)) + Screen.dp(COUNTER_ADD_MARGIN);
       }
+    }
+
+    if (shouldShowEffectIcon()) {
+      max -= effectIcon.getScaledWidth(Screen.dp(COUNTER_ICON_MARGIN)) + Screen.dp(COUNTER_ADD_MARGIN);
     }
 
     String authorName;
@@ -4080,6 +4109,11 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
       }
     }
 
+    if (shouldShowEffectIcon()) {
+      effectIcon.draw(c, startX, counterY, Gravity.LEFT, 1f, view, iconColorId, effectIconLastDrawRect);
+      startX += effectIcon.getScaledWidth(Screen.dp(COUNTER_ICON_MARGIN));
+    }
+
     if (translationStyleMode() == Settings.TRANSLATE_MODE_INLINE) {
       isTranslatedCounter.draw(c, startX, counterY, Gravity.LEFT, 1f, isTranslatedCounterLastDrawRect);
       startX += isTranslatedCounter.getScaledWidth(Screen.dp(COUNTER_ICON_MARGIN + COUNTER_ADD_MARGIN));
@@ -4137,6 +4171,9 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
       } else {
         width += isEdited.getScaledOrTargetWidth(Screen.dp(COUNTER_ICON_MARGIN), isTarget);
       }
+    }
+    if (shouldShowEffectIcon()) {
+      width += effectIcon.getScaledOrTargetWidth(Screen.dp(COUNTER_ICON_MARGIN), isTarget);
     }
     if (translationStyleMode() == Settings.TRANSLATE_MODE_INLINE) {
       width += isTranslatedCounter.getScaledOrTargetWidth(Screen.dp(COUNTER_ICON_MARGIN + COUNTER_ADD_MARGIN), isTarget);
@@ -9461,6 +9498,57 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
       startReactionBubbleAnimation(nextSetReactionAnimation.reaction.type);
     }
     clearSetReactionAnimation();
+  }
+
+  // Message effects (received side): a bolt icon next to the time replays the effect on tap
+
+  private boolean shouldShowEffectIcon () {
+    return msg.effectId != 0;
+  }
+
+  private boolean effectAnimationPlaying;
+
+  private void playMessageEffect () {
+    if (effectAnimationPlaying || msg.effectId == 0) {
+      return;
+    }
+    effectAnimationPlaying = true;
+    tdlib.client().send(new TdApi.GetMessageEffect(msg.effectId), result -> runOnUiThreadOptional(() -> {
+      if (result.getConstructor() != TdApi.MessageEffect.CONSTRUCTOR) {
+        effectAnimationPlaying = false;
+        return;
+      }
+      TdApi.MessageEffect effect = (TdApi.MessageEffect) result;
+      TdApi.Sticker animation;
+      switch (effect.type.getConstructor()) {
+        case TdApi.MessageEffectTypeEmojiReaction.CONSTRUCTOR:
+          animation = ((TdApi.MessageEffectTypeEmojiReaction) effect.type).effectAnimation;
+          break;
+        case TdApi.MessageEffectTypePremiumSticker.CONSTRUCTOR:
+          animation = ((TdApi.MessageEffectTypePremiumSticker) effect.type).sticker;
+          break;
+        default:
+          animation = null;
+          break;
+      }
+      View view = findCurrentView();
+      if (animation == null || view == null) {
+        effectAnimationPlaying = false;
+        return;
+      }
+      int[] positionCords = new int[2];
+      view.getLocationOnScreen(positionCords);
+      int x = positionCords[0] + (int) effectIconLastDrawRect.centerX();
+      int y = positionCords[1] + (int) effectIconLastDrawRect.centerY();
+      TGStickerObj effectSticker = new TGStickerObj(tdlib, animation, effect.emoji, animation.fullType);
+      context().reactionsOverlayManager().addOverlay(
+        new ReactionsOverlayView.ReactionInfo(context().reactionsOverlayManager())
+          .setSticker(effectSticker, true)
+          .setPosition(new Point(x, y), Screen.dp(120f))
+      );
+      // The overlay plays once; allow replays shortly after
+      runOnUiThreadOptional(() -> effectAnimationPlaying = false, 3000);
+    }));
   }
 
   public void startReactionBubbleAnimation (TdApi.ReactionType reactionType) {
