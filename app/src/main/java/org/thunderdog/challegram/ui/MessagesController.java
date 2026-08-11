@@ -2807,7 +2807,7 @@ public class MessagesController extends ViewController<MessagesController.Argume
           }
           break;
         case PREVIEW_MODE_SEARCH:
-          manager.openSearch(chat, previewSearchQuery, previewSearchSender, previewSearchFilter);
+          manager.openSearch(chat, previewSearchQuery, previewSearchSender, previewSearchFilter, null);
           updateBottomBar(false);
           break;
         default:
@@ -11210,11 +11210,12 @@ public class MessagesController extends ViewController<MessagesController.Argume
   private TextView searchCounterView;
   private ProgressComponentView searchProgressView;
   private ImageView searchSetTypeFilterButton;
+  private ImageView searchTagFilterButton;
   private ImageView searchShowOnlyFoundButton;
   private AvatarView searchByAvatarView;
 
   private boolean canSetSearchFilteredMode () {
-    return !isEventLog() && chat != null && (searchMessagesSender != null || searchMessagesFilterIndex != 0 || !StringUtils.isEmpty(getLastMessageSearchQuery()));
+    return !isEventLog() && chat != null && (searchMessagesSender != null || searchMessagesFilterIndex != 0 || searchMessagesTag != null || !StringUtils.isEmpty(getLastMessageSearchQuery()));
   }
 
   private boolean canSearchByUserId () {
@@ -11404,6 +11405,8 @@ public class MessagesController extends ViewController<MessagesController.Argume
       final int viewId = v.getId();
       if (viewId == R.id.btn_search_setTypeFilter) {
         showSearchTypeOptions();
+      } else if (viewId == R.id.btn_search_setTagFilter) {
+        showSearchTagOptions();
       } else if (viewId == R.id.btn_search_by) {
         showSearchByUserView(true, true);
       } else if (viewId == R.id.btn_search_counter) {
@@ -11478,6 +11481,15 @@ public class MessagesController extends ViewController<MessagesController.Argume
     searchSetTypeFilterButton.setOnClickListener(onClickListener);
     searchSetTypeFilterButton.setLayoutParams(fp);
     searchControlsLayout.addView(searchSetTypeFilterButton);
+
+    fp = FrameLayoutFix.newParams(Screen.dp(52f), Screen.dp(49f), Gravity.LEFT | Gravity.CENTER_VERTICAL);
+    fp.leftMargin = Screen.dp(42.5f * 3);
+    searchTagFilterButton = Views.newImageButton(context, R.drawable.baseline_label_24, ColorId.icon, this);
+    searchTagFilterButton.setId(R.id.btn_search_setTagFilter);
+    searchTagFilterButton.setOnClickListener(onClickListener);
+    searchTagFilterButton.setLayoutParams(fp);
+    searchTagFilterButton.setVisibility(chat != null && tdlib.isSelfChat(chat.id) ? View.VISIBLE : View.GONE);
+    searchControlsLayout.addView(searchTagFilterButton);
 
     fp = FrameLayoutFix.newParams(Screen.dp(52f), Screen.dp(49f), Gravity.RIGHT | Gravity.CENTER_VERTICAL);
     searchShowOnlyFoundButton = Views.newImageButton(context, R.drawable.baseline_text_search_variant_24, ColorId.icon, this);
@@ -11694,6 +11706,12 @@ public class MessagesController extends ViewController<MessagesController.Argume
   protected void onLeaveSearchMode () {
     if (searchFromUserMessageId != null) {
       manager.setHighlightMessageId(searchFromUserMessageId, MessagesManager.HIGHLIGHT_MODE_WITHOUT_HIGHLIGHT);
+    }
+    if (searchMessagesTag != null) {
+      searchMessagesTag = null;
+      if (searchTagFilterButton != null) {
+        searchTagFilterButton.setColorFilter(Theme.getColor(ColorId.icon));
+      }
     }
     onSetSearchFilteredShowMode(false);
     manager.onDestroySearch();
@@ -12075,7 +12093,7 @@ public class MessagesController extends ViewController<MessagesController.Argume
       applyQueryForManagerInFilteredShowMode(query);
     }
 
-    manager.search(chat.id, messageThread, messageTopicId, searchMessagesSender, searchFiltersTdApi[searchMessagesFilterIndex], chat.type.getConstructor() == TdApi.ChatTypeSecret.CONSTRUCTOR, query, foundMessageId);
+    manager.search(chat.id, messageThread, messageTopicId, searchMessagesSender, searchFiltersTdApi[searchMessagesFilterIndex], searchMessagesTag, chat.type.getConstructor() == TdApi.ChatTypeSecret.CONSTRUCTOR, query, foundMessageId);
     foundMessageId = null;
     searchMedia(query);
     manager.getAdapter().checkAllMessages();
@@ -12171,6 +12189,65 @@ public class MessagesController extends ViewController<MessagesController.Argume
   private TdApi.MessageSender searchMessagesSender = null;
   private int searchMessagesFilterIndex = 0;
   private boolean searchMessagesFilterMode = false;
+  private TdApi.ReactionType searchMessagesTag = null;
+
+  private void onSetSearchMessagesTag (TdApi.ReactionType tag) {
+    searchMessagesTag = tag;
+    if (tag != null) {
+      // SearchSavedMessages supports neither a media-type filter nor a sender
+      if (searchMessagesFilterIndex != 0) {
+        onSetSearchTypeFilter(0);
+      }
+      if (searchMessagesSender != null) {
+        onSetSearchMessagesSenderId(null);
+      }
+    }
+    if (searchTagFilterButton != null) {
+      searchTagFilterButton.setColorFilter(Theme.getColor(tag != null ? ColorId.iconActive : ColorId.icon));
+    }
+    searchChatMessages(getLastMessageSearchQuery());
+  }
+
+  private void showSearchTagOptions () {
+    tdlib.client().send(new TdApi.GetSavedMessagesTags(0), result -> runOnUiThreadOptional(() -> {
+      if (result.getConstructor() != TdApi.SavedMessagesTags.CONSTRUCTOR) {
+        UI.showError(result);
+        return;
+      }
+      TdApi.SavedMessagesTag[] tags = ((TdApi.SavedMessagesTags) result).tags;
+      if (tags.length == 0) {
+        context().tooltipManager().builder(searchTagFilterButton).show(tdlib, R.string.TagFilterEmpty).hideDelayed();
+        return;
+      }
+      // Plain sequential option ids: 1 = no filter, 2 + i = tags[i]
+      int[] ids = new int[tags.length + 1];
+      String[] titles = new String[tags.length + 1];
+      ids[0] = 1;
+      titles[0] = Lang.getString(R.string.TagFilterAll);
+      for (int i = 0; i < tags.length; i++) {
+        TdApi.SavedMessagesTag tag = tags[i];
+        String emoji = tag.tag.getConstructor() == TdApi.ReactionTypeEmoji.CONSTRUCTOR ?
+          ((TdApi.ReactionTypeEmoji) tag.tag).emoji : Lang.getString(R.string.TagFilterCustom);
+        String title = emoji;
+        if (!StringUtils.isEmpty(tag.label)) {
+          title += " · " + tag.label;
+        }
+        if (tag.count > 0) {
+          title += " (" + tag.count + ")";
+        }
+        ids[1 + i] = 2 + i;
+        titles[1 + i] = title;
+      }
+      showOptions(null, ids, titles, (optionItemView, id) -> {
+        if (id == 1) {
+          onSetSearchMessagesTag(null);
+        } else if (id >= 2 && id - 2 < tags.length) {
+          onSetSearchMessagesTag(tags[id - 2].tag);
+        }
+        return true;
+      });
+    }));
+  }
 
   private void onSetSearchMessagesSenderId (TdApi.MessageSender sender) {
     searchMessagesSender = sender;
@@ -12222,7 +12299,7 @@ public class MessagesController extends ViewController<MessagesController.Argume
   }
 
   private void applyQueryForManagerInFilteredShowMode (String query) {
-    manager.openSearch(chat, query, searchMessagesSender, searchFiltersTdApi[searchMessagesFilterIndex]);
+    manager.openSearch(chat, query, searchMessagesSender, searchFiltersTdApi[searchMessagesFilterIndex], searchMessagesTag);
   }
 
 

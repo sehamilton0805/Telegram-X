@@ -319,6 +319,9 @@
   <string name="ProfileColor">Цвет профиля</string>
   <string name="RecognizeSpeech">Расшифровать</string>
   <string name="RecognizeSpeechError">Не удалось расшифровать</string>
+  <string name="TagFilterAll">Все сообщения</string>
+  <string name="TagFilterCustom">Кастом-тег</string>
+  <string name="TagFilterEmpty">В Избранном пока нет тегов</string>
   <string name="general_Messages">Messages</string>
   <string name="SelectChat">Select Chat</string>
   <string name="Message">Message</string>

@@ -597,9 +597,9 @@ public class MessagesManager implements Client.ResultHandler, MessagesSearchMana
 
   // Search
 
-  public void openSearch (TdApi.Chat chat, String query, TdApi.MessageSender sender, TdApi.SearchMessagesFilter filter) {
+  public void openSearch (TdApi.Chat chat, String query, TdApi.MessageSender sender, TdApi.SearchMessagesFilter filter, TdApi.ReactionType tag) {
     loader.setChat(chat, null, null, MessagesLoader.SPECIAL_MODE_SEARCH, filter);
-    loader.setSearchParameters(query, sender, filter);
+    loader.setSearchParameters(query, sender, filter, tag);
     adapter.setChatType(chat.type);
     if (filter != null && Td.isPinnedFilter(filter)) {
       initPinned(chat.id, 1, 1);
@@ -2896,11 +2896,11 @@ public class MessagesManager implements Client.ResultHandler, MessagesSearchMana
     searchManager.onPrepare();
   }
 
-  public void search (long chatId, @Nullable ThreadInfo messageThread, @Nullable TdApi.MessageTopic topicId, TdApi.MessageSender sender, TdApi.SearchMessagesFilter filter, boolean isSecret, String input, MessageId foundMessageId) {
+  public void search (long chatId, @Nullable ThreadInfo messageThread, @Nullable TdApi.MessageTopic topicId, TdApi.MessageSender sender, TdApi.SearchMessagesFilter filter, TdApi.ReactionType tag, boolean isSecret, String input, MessageId foundMessageId) {
     if (isEventLog()) {
       applyEventLogFilters(eventLogFilters, input, eventLogUserIds);
     } else {
-      searchManager.search(messageThread != null ? messageThread.getChatId() : chatId, topicId, sender, filter, isSecret, input, foundMessageId);
+      searchManager.search(messageThread != null ? messageThread.getChatId() : chatId, topicId, sender, filter, tag, isSecret, input, foundMessageId);
     }
   }
 

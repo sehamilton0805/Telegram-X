@@ -104,6 +104,7 @@ public class MessagesLoader implements Client.ResultHandler {
   private String searchQuery;
   private TdApi.MessageSender searchSender;
   private TdApi.SearchMessagesFilter searchFilter;
+  private TdApi.ReactionType searchTag;
   private TdApi.MessageSource messageSource;
 
   private @Nullable TdApi.Chat chat;
@@ -202,10 +203,11 @@ public class MessagesLoader implements Client.ResultHandler {
     }
   }
 
-  public void setSearchParameters (String query, TdApi.MessageSender sender, TdApi.SearchMessagesFilter filter) {
+  public void setSearchParameters (String query, TdApi.MessageSender sender, TdApi.SearchMessagesFilter filter, TdApi.ReactionType tag) {
     this.searchQuery = query;
     this.searchSender = sender;
     this.searchFilter = filter;
+    this.searchTag = tag;
     this.lastSearchNextOffset = null;
     this.lastSearchNextFromMessageId = 0;
   }
@@ -1131,6 +1133,10 @@ public class MessagesLoader implements Client.ResultHandler {
           if (ChatId.isSecret(chatId)) {
             Log.ensureReturnType(TdApi.SearchSecretMessages.class, TdApi.FoundMessages.class);
             function = new TdApi.SearchSecretMessages(sourceChatId, searchQuery, lastSearchNextOffset, limit, searchFilter);
+          } else if (searchTag != null) {
+            // Saved Messages tag filter
+            Log.ensureReturnType(TdApi.SearchSavedMessages.class, TdApi.FoundChatMessages.class);
+            function = new TdApi.SearchSavedMessages(0, searchTag, searchQuery, (lastFromMessageId = fromMessageId).getMessageId(), lastOffset = offset, lastLimit = limit);
           } else {
             Log.ensureReturnType(TdApi.SearchChatMessages.class, TdApi.FoundChatMessages.class);
             function = new TdApi.SearchChatMessages(sourceChatId, topicId, searchQuery, searchSender, (lastFromMessageId = fromMessageId).getMessageId(), lastOffset = offset, lastLimit = limit, searchFilter);
