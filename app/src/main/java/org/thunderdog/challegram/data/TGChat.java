@@ -79,6 +79,8 @@ import tgx.td.TdExt;
 
 public class TGChat implements TdlibStatusManager.HelperTarget, ContentPreview.RefreshCallback, Counter.Callback, ReactionLoadListener, Destroyable, TdlibUi.MessageProvider {
   private static final int FLAG_HAS_PREFIX = 1;
+  private static final int FLAG_HAS_STORIES = 1 << 1;
+  private static final int FLAG_HAS_UNREAD_STORIES = 1 << 2;
   private static final int FLAG_TEXT_DRAFT = 1 << 4;
   private static final int FLAG_SHOW_VERIFY = 1 << 5;
   private static final int FLAG_SELF_CHAT = 1 << 7;
@@ -206,9 +208,38 @@ public class TGChat implements TdlibStatusManager.HelperTarget, ContentPreview.R
     this.tdlib.singleUnreadReactionsManager().checkChat(chat);
     this.scheduleAnimator.setValue(hasScheduledMessages(), false);
     checkOnline();
+    checkStories();
     if (makeMeasures) {
       buildLayout(Screen.currentWidth());
     }
+  }
+
+  private boolean checkStories () {
+    if (chat == null) {
+      return false;
+    }
+    TdApi.ChatActiveStories activeStories = tdlib.getActiveStories(chat.id, false, null);
+    boolean hasStories = activeStories != null && activeStories.stories.length > 0;
+    boolean hasUnread = hasStories && activeStories.stories[activeStories.stories.length - 1].storyId > activeStories.maxReadStoryId;
+    int newFlags = BitwiseUtils.setFlag(flags, FLAG_HAS_STORIES, hasStories);
+    newFlags = BitwiseUtils.setFlag(newFlags, FLAG_HAS_UNREAD_STORIES, hasUnread);
+    if (this.flags != newFlags) {
+      this.flags = newFlags;
+      return true;
+    }
+    return false;
+  }
+
+  public boolean hasActiveStories () {
+    return BitwiseUtils.hasFlag(flags, FLAG_HAS_STORIES);
+  }
+
+  public boolean hasUnreadStories () {
+    return BitwiseUtils.hasFlag(flags, FLAG_HAS_UNREAD_STORIES);
+  }
+
+  public boolean updateActiveStories () {
+    return checkStories();
   }
 
   public TGChat (ViewController<?> context, TdlibChatList list, boolean makeMeasures) {

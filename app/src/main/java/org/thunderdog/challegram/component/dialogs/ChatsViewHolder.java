@@ -98,6 +98,7 @@ public class ChatsViewHolder extends RecyclerView.ViewHolder {
           view.setAnimationsDisabled(parentController.isLaunching());
           view.setOnClickListener(parentController);
           view.setOnLongClickListener(parentController);
+          view.setStoryAvatarClickListener(parentController);
         } else {
           view.setEnabled(false);
           view.setOnClickListener(null);

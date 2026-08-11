@@ -163,10 +163,15 @@ public class StoriesFeedController extends RecyclerViewController<Void> implemen
     openStoryChain(activeStories);
   }
 
-  private boolean opening;
-
   private void openStoryChain (TdApi.ChatActiveStories activeStories) {
-    if (opening) {
+    openStoryChain(this, tdlib, activeStories);
+  }
+
+  private static boolean opening;
+
+  // Also used by the chat list story rings
+  public static void openStoryChain (org.thunderdog.challegram.navigation.ViewController<?> context, Tdlib tdlib, TdApi.ChatActiveStories activeStories) {
+    if (opening || activeStories.stories.length == 0) {
       return;
     }
     opening = true;
@@ -182,20 +187,23 @@ public class StoriesFeedController extends RecyclerViewController<Void> implemen
         }
         // TDLib result handlers run sequentially on one thread
         if (--remaining[0] == 0) {
-          runOnUiThreadOptional(() -> showStoryChain(chatId, stories));
+          tdlib.ui().post(() -> showStoryChain(context, tdlib, chatId, stories));
         }
       });
     }
   }
 
-  private void showStoryChain (long chatId, TdApi.Story[] stories) {
+  private static void showStoryChain (org.thunderdog.challegram.navigation.ViewController<?> context, Tdlib tdlib, long chatId, TdApi.Story[] stories) {
     opening = false;
+    if (context.isDestroyed()) {
+      return;
+    }
     List<MediaItem> mediaItems = new ArrayList<>(stories.length);
     for (TdApi.Story story : stories) {
       if (story == null) {
         continue;
       }
-      MediaItem item = TGMessageStory.toMediaItem(context(), tdlib, story);
+      MediaItem item = TGMessageStory.toMediaItem(context.context(), tdlib, story);
       if (item != null) {
         mediaItems.add(item);
         // Mark as viewed: the viewer popup exposes no close/page callbacks we own
@@ -207,8 +215,8 @@ public class StoriesFeedController extends RecyclerViewController<Void> implemen
       UI.showToast(R.string.StoryUnsupported, Toast.LENGTH_SHORT);
       return;
     }
-    MediaStack stack = new MediaStack(context(), tdlib);
+    MediaStack stack = new MediaStack(context.context(), tdlib);
     stack.set(0, mediaItems);
-    MediaViewController.openWithStack(this, stack, tdlib.chatTitle(chatId), null, false);
+    MediaViewController.openWithStack(context, stack, tdlib.chatTitle(chatId), null, false);
   }
 }

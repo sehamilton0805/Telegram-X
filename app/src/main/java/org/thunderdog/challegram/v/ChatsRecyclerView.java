@@ -170,6 +170,13 @@ public class ChatsRecyclerView extends CustomRecyclerView implements ClickHelper
     }
   }
 
+  public void updateChatActiveStories (long chatId) {
+    int updated = adapter.updateChatActiveStories(chatId);
+    if (updated != -1) {
+      invalidateViewAt(updated);
+    }
+  }
+
   public void updateChatUnreadReactionCount (long chatId, int unreadReactionCount) {
     int updated = adapter.updateChatUnreadReactionCount(chatId, unreadReactionCount);
     if (updated != -1) {

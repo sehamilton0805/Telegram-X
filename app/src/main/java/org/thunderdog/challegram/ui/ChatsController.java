@@ -136,7 +136,7 @@ import tgx.td.ChatPosition;
 import tgx.td.Td;
 
 public class ChatsController extends TelegramViewController<ChatsController.Arguments> implements Menu,
-  View.OnClickListener, View.OnLongClickListener, ChatsRecyclerView.LoadMoreCallback,
+  View.OnClickListener, View.OnLongClickListener, ChatsRecyclerView.LoadMoreCallback, ChatView.StoryAvatarClickListener,
   ChatListener, ConnectionListener, MessageListener, MessageEditListener, NotificationSettingsListener,
   TdlibCache.SupergroupDataChangeListener, TdlibCache.BasicGroupDataChangeListener, TdlibCache.UserDataChangeListener, TdlibCache.SecretChatDataChangeListener,
   ChatListListener,
@@ -2821,6 +2821,28 @@ public class ChatsController extends TelegramViewController<ChatsController.Argu
         chatsView.updateChatReadInbox(chatId, lastReadInboxMessageId, unreadCount);
       }
     });
+  }
+
+  @Override
+  public void onChatActiveStoriesChanged (@NonNull TdApi.ChatActiveStories activeStories) {
+    runOnUiThreadOptional(() -> {
+      if (chatsView != null) {
+        chatsView.updateChatActiveStories(activeStories.chatId);
+      }
+    });
+  }
+
+  @Override
+  public boolean onStoryAvatarClick (ChatView view, TGChat chat) {
+    if (isChatSelected(chat) || getSelectedChatCount() > 0 || chat.isArchive() || chat.getChatId() == 0) {
+      return false;
+    }
+    TdApi.ChatActiveStories activeStories = tdlib.getActiveStories(chat.getChatId(), false, null);
+    if (activeStories == null || activeStories.stories.length == 0) {
+      return false;
+    }
+    StoriesFeedController.openStoryChain(this, tdlib, activeStories);
+    return true;
   }
 
   @Override

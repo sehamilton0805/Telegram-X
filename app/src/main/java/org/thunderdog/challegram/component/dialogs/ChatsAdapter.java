@@ -435,6 +435,14 @@ public class ChatsAdapter extends RecyclerView.Adapter<ChatsViewHolder> {
     return -1;
   }
 
+  public int updateChatActiveStories (long chatId) {
+    int index = indexOfChat(chatId);
+    if (index != -1 && chats.get(index).updateActiveStories()) {
+      return getItemPositionByChatIndex(index);
+    }
+    return -1;
+  }
+
   public int updateChatUnreadReactionCount (long chatId, int unreadReactionCount) {
     int index = indexOfChat(chatId);
     if (index != -1 && chats.get(index).updateChatUnreadReactionCount(chatId, unreadReactionCount)) {

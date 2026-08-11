@@ -177,6 +177,26 @@ public class ChatView extends BaseView implements TdlibSettingsManager.Preferenc
   }
 
   private TGChat chat;
+
+  public interface StoryAvatarClickListener {
+    boolean onStoryAvatarClick (ChatView view, TGChat chat);
+  }
+
+  private @Nullable StoryAvatarClickListener storyAvatarClickListener;
+
+  public void setStoryAvatarClickListener (@Nullable StoryAvatarClickListener listener) {
+    this.storyAvatarClickListener = listener;
+  }
+
+  @Override
+  public void onClickAt (View view, float x, float y) {
+    // A tap on an avatar with a story ring opens the stories instead of the chat
+    if (chat != null && chat.hasActiveStories() && storyAvatarClickListener != null &&
+      avatarReceiver.isInsideReceiver(x, y) && storyAvatarClickListener.onStoryAvatarClick(this, chat)) {
+      return;
+    }
+    super.onClickAt(view, x, y);
+  }
   private final AvatarReceiver avatarReceiver;
   private final ComplexReceiver emojiStatusReceiver;
   private final ComplexReceiver textMediaReceiver;
@@ -733,6 +753,11 @@ public class ChatView extends BaseView implements TdlibSettingsManager.Preferenc
       avatarReceiver.drawPlaceholder(c);
     }
     avatarReceiver.draw(c);
+
+    if (chat != null && chat.hasActiveStories()) {
+      int ringColor = Theme.getColor(chat.hasUnreadStories() ? ColorId.iconActive : ColorId.iconLight);
+      c.drawCircle(avatarReceiver.centerX(), avatarReceiver.centerY(), avatarReceiver.getDisplayRadius() + Screen.dp(3f), Paints.getProgressPaint(ringColor, Screen.dp(2f)));
+    }
 
     DrawAlgorithms.drawIcon(c, avatarReceiver, 315f, chat.getScheduleAnimator().getFloatValue(), Theme.fillingColor(), getSparseDrawable(R.drawable.baseline_watch_later_10, ColorId.badgeMuted), PorterDuffPaint.get(ColorId.badgeMuted, chat.getScheduleAnimator().getFloatValue()));
     DrawAlgorithms.drawSimplestCheckBox(c, avatarReceiver, isSelected.getFloatValue());
