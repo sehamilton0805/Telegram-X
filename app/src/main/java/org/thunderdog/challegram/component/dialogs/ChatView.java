@@ -21,6 +21,7 @@ import android.graphics.RectF;
 import android.graphics.drawable.Drawable;
 import android.text.TextPaint;
 import android.view.Gravity;
+import android.view.View;
 import android.view.ViewGroup;
 
 import androidx.annotation.Nullable;
