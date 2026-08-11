@@ -182,6 +182,9 @@
   <item type="id" name="btn_topicPin" />
   <item type="id" name="btn_topicClose" />
   <item type="id" name="btn_topicRename" />
+  <item type="id" name="btn_nameColor" />
+  <item type="id" name="btn_profileColor" />
+  <item type="id" name="btn_recognizeSpeech" />
   <item type="id" name="controller_call" />
   <item type="id" name="controller_people" />
   <item type="id" name="controller_settings" />

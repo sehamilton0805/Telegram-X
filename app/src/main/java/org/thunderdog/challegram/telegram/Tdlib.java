@@ -9679,11 +9679,30 @@ public class Tdlib implements TdlibProvider, Settings.SettingsChangeListener, Da
   private int[] availableProfileAccentColorIds;
   private final SparseArrayCompat<TdApi.ProfileAccentColor> profileAccentColors = new SparseArrayCompat<>();
 
+  public int[] availableAccentColorIds () {
+    synchronized (accentColors) {
+      return availableAccentColorIds != null ? availableAccentColorIds : new int[0];
+    }
+  }
+
+  public int[] availableProfileAccentColorIds () {
+    synchronized (profileAccentColors) {
+      return availableProfileAccentColorIds != null ? availableProfileAccentColorIds : new int[0];
+    }
+  }
+
+  @Nullable
+  public TdApi.ProfileAccentColor profileAccentColor (int profileAccentColorId) {
+    synchronized (profileAccentColors) {
+      return profileAccentColors.get(profileAccentColorId);
+    }
+  }
+
   @TdlibThread
   private void updateProfileAccentColors (TdApi.UpdateProfileAccentColors update) {
     boolean listChanged;
     synchronized (profileAccentColors) {
-      listChanged = Arrays.equals(this.availableProfileAccentColorIds, update.availableAccentColorIds);
+      listChanged = !Arrays.equals(this.availableProfileAccentColorIds, update.availableAccentColorIds);
       this.availableProfileAccentColorIds = update.availableAccentColorIds;
       for (TdApi.ProfileAccentColor profileAccentColor : update.colors) {
         profileAccentColors.put(profileAccentColor.id, profileAccentColor);

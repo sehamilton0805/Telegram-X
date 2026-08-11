@@ -315,6 +315,10 @@
   <string name="TopicRename">Переименовать тему</string>
   <string name="TopicClose">Закрыть тему</string>
   <string name="TopicReopen">Открыть тему</string>
+  <string name="NameColor">Цвет имени</string>
+  <string name="ProfileColor">Цвет профиля</string>
+  <string name="RecognizeSpeech">Расшифровать</string>
+  <string name="RecognizeSpeechError">Не удалось расшифровать</string>
   <string name="general_Messages">Messages</string>
   <string name="SelectChat">Select Chat</string>
   <string name="Message">Message</string>

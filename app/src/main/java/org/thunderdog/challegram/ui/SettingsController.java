@@ -16,7 +16,9 @@ package org.thunderdog.challegram.ui;
 
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.RectF;
 import android.text.SpannableStringBuilder;
 import android.view.View;
 import android.view.ViewGroup;
@@ -69,6 +71,7 @@ import org.thunderdog.challegram.telegram.TdlibOptionListener;
 import org.thunderdog.challegram.telegram.TdlibUi;
 import org.thunderdog.challegram.theme.ColorId;
 import org.thunderdog.challegram.theme.Theme;
+import org.thunderdog.challegram.tool.Paints;
 import org.thunderdog.challegram.tool.Screen;
 import org.thunderdog.challegram.tool.Strings;
 import org.thunderdog.challegram.tool.UI;
@@ -448,8 +451,15 @@ public class SettingsController extends ViewController<Void> implements
     this.adapter = new SettingsAdapter(this) {
       @Override
       public void setValuedSetting (ListItem item, SettingView view, boolean isUpdate) {
+        // SettingsAdapter does not transfer ListItem's DrawModifier to the view automatically;
+        // set it unconditionally so recycled rows also get stale modifiers cleared (null clears)
+        view.setDrawModifier(item.getDrawModifier());
         boolean hasError = false;
         final int itemId = item.getId();
+        if (itemId == R.id.btn_nameColor || itemId == R.id.btn_profileColor) {
+          // The modifier reads live accent colors; same-instance setDrawModifier doesn't invalidate
+          view.invalidate();
+        }
         if (itemId == R.id.btn_notificationSettings) {
           checkErrors(false);
           hasError = hasNotificationError;
@@ -611,6 +621,10 @@ public class SettingsController extends ViewController<Void> implements
     }
     items.add(new ListItem(ListItem.TYPE_SEPARATOR));
     items.add(new ListItem(ListItem.TYPE_INFO_MULTILINE, R.id.btn_bio, R.drawable.baseline_info_24, R.string.UserBio).setContentStrings(R.string.LoadingInformation, R.string.BioNone));
+    items.add(new ListItem(ListItem.TYPE_SEPARATOR));
+    items.add(new ListItem(ListItem.TYPE_SETTING, R.id.btn_nameColor, R.drawable.baseline_palette_24, R.string.NameColor).setDrawModifier(nameColorModifier));
+    items.add(new ListItem(ListItem.TYPE_SEPARATOR));
+    items.add(new ListItem(ListItem.TYPE_SETTING, R.id.btn_profileColor, R.drawable.baseline_palette_24, R.string.ProfileColor).setDrawModifier(profileColorModifier));
     items.add(new ListItem(ListItem.TYPE_SHADOW_BOTTOM));
 
     TdApi.SuggestedAction[] actions = tdlib.getSuggestedActions();
@@ -1000,6 +1014,9 @@ public class SettingsController extends ViewController<Void> implements
         adapter.updateValuedSettingById(R.id.btn_phone);
         adapter.updateValuedSettingById(R.id.btn_changePhoneNumber);
       }
+      // Repaint the accent color circles drawn by the row modifiers
+      adapter.updateAllValuedSettingsById(R.id.btn_nameColor);
+      adapter.updateAllValuedSettingsById(R.id.btn_profileColor);
     });
   }
 
@@ -1131,6 +1148,48 @@ public class SettingsController extends ViewController<Void> implements
     }
   }
 
+  // Current accent colors, drawn as circles at the right edge of their settings rows
+  private final org.thunderdog.challegram.util.DrawModifier nameColorModifier = new org.thunderdog.challegram.util.DrawModifier() {
+    @Override
+    public void afterDraw (View view, Canvas c) {
+      TdApi.User me = tdlib.myUser();
+      if (me == null) {
+        return;
+      }
+      float cx = view.getWidth() - Screen.dp(32f);
+      float cy = view.getHeight() / 2f;
+      c.drawCircle(cx, cy, Screen.dp(10f), Paints.fillingPaint(tdlib.accentColor(me.accentColorId).getPrimaryColor()));
+    }
+  };
+
+  private final org.thunderdog.challegram.util.DrawModifier profileColorModifier = new org.thunderdog.challegram.util.DrawModifier() {
+    @Override
+    public void afterDraw (View view, Canvas c) {
+      TdApi.User me = tdlib.myUser();
+      if (me == null) {
+        return;
+      }
+      float cx = view.getWidth() - Screen.dp(32f);
+      float cy = view.getHeight() / 2f;
+      float radius = Screen.dp(10f);
+      TdApi.ProfileAccentColor profileColor = me.profileAccentColorId >= 0 ? tdlib.profileAccentColor(me.profileAccentColorId) : null;
+      if (profileColor == null) {
+        c.drawCircle(cx, cy, radius, Paints.getProgressPaint(Theme.getColor(ColorId.icon), Screen.dp(1.5f)));
+        return;
+      }
+      TdApi.ProfileAccentColors colors = Theme.getDarkFactor() >= .5f ? profileColor.darkThemeColors : profileColor.lightThemeColors;
+      int[] palette = colors.paletteColors;
+      RectF rectF = Paints.getRectF();
+      rectF.set(cx - radius, cy - radius, cx + radius, cy + radius);
+      if (palette.length >= 2) {
+        c.drawArc(rectF, 135f, 180f, true, Paints.fillingPaint(0xFF000000 | palette[0]));
+        c.drawArc(rectF, -45f, 180f, true, Paints.fillingPaint(0xFF000000 | palette[1]));
+      } else if (palette.length == 1) {
+        c.drawCircle(cx, cy, radius, Paints.fillingPaint(0xFF000000 | palette[0]));
+      }
+    }
+  };
+
   @Override
   public void onClick (View v) {
     cancelSupportOpen();
@@ -1138,6 +1197,31 @@ public class SettingsController extends ViewController<Void> implements
       return;
     }
     final int viewId = v.getId();
+    if (viewId == R.id.btn_nameColor) {
+      TdApi.User me = tdlib.myUser();
+      AccentColorSelector.showNameColors(this, me != null ? me.accentColorId : -1, colorId -> {
+        TdApi.User user = tdlib.myUser();
+        tdlib.send(new TdApi.SetAccentColor(colorId, user != null ? user.backgroundCustomEmojiId : 0),
+          (ok, error) -> {
+            if (error != null) {
+              UI.showError(error);
+            }
+          });
+      });
+      return;
+    } else if (viewId == R.id.btn_profileColor) {
+      TdApi.User me = tdlib.myUser();
+      AccentColorSelector.showProfileColors(this, me != null ? me.profileAccentColorId : -1, colorId -> {
+        TdApi.User user = tdlib.myUser();
+        tdlib.send(new TdApi.SetProfileAccentColor(colorId, user != null ? user.profileBackgroundCustomEmojiId : 0),
+          (ok, error) -> {
+            if (error != null) {
+              UI.showError(error);
+            }
+          });
+      });
+      return;
+    }
     if (viewId == R.id.btn_bio) {
       EditBioController c = new EditBioController(context, tdlib);
       c.setArguments(new EditBioController.Arguments(about != null ? about.text : "", 0));
