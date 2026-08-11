@@ -8560,6 +8560,9 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
         case TdApi.MessageGiveaway.CONSTRUCTOR: {
           return new TGMessageGiveaway(context, msg, (TdApi.MessageGiveaway) content);
         }
+        case TdApi.MessageChecklist.CONSTRUCTOR: {
+          return new TGMessageChecklist(context, msg, ((TdApi.MessageChecklist) content).list);
+        }
         // unsupported
         case TdApi.MessageRichMessage.CONSTRUCTOR:
         case TdApi.MessageInvoice.CONSTRUCTOR:
@@ -8578,9 +8581,7 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
         case TdApi.MessageUpgradedGiftPurchaseOfferRejected.CONSTRUCTOR:
         case TdApi.MessageRefundedUpgradedGift.CONSTRUCTOR:
         case TdApi.MessageStakeDice.CONSTRUCTOR:
-
         case TdApi.MessageGroupCall.CONSTRUCTOR: // TODO TGMessageCall
-        case TdApi.MessageChecklist.CONSTRUCTOR: // TODO TGMessagePoll
         case TdApi.MessageSuggestedPostApprovalFailed.CONSTRUCTOR:
         case TdApi.MessageSuggestedPostApproved.CONSTRUCTOR:
         case TdApi.MessageSuggestedPostDeclined.CONSTRUCTOR:
