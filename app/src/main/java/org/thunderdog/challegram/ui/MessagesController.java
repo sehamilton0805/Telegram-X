@@ -400,6 +400,15 @@ public class MessagesController extends ViewController<MessagesController.Argume
         items.add(new HapticMenuHelper.MenuItem(R.id.btn_sendNoMarkdown, Lang.getString(R.string.SendDiceAsEmoji), Drawables.emojiDrawable(currentText.text)));
       }
     }
+    if (!isEditingMessage() && ChatId.isPrivate(getChatId())) {
+      long[] effectIds = tdlib.availableReactionEffectIds();
+      if (effectIds != null && effectIds.length > 0) {
+        if (items == null) {
+          items = new ArrayList<>();
+        }
+        items.add(new HapticMenuHelper.MenuItem(R.id.btn_sendWithEffect, Lang.getString(pendingMessageEffectId != 0 ? R.string.SendEffectChange : R.string.SendWithEffect), R.drawable.baseline_bolt_16));
+      }
+    }
     if (BuildConfig.DEBUG) {
       items.add(new HapticMenuHelper.MenuItem(R.id.btn_sendToast, "Show toast", R.drawable.baseline_warning_24));
       items.add(new HapticMenuHelper.MenuItem(R.id.btn_debugLtrEmoji, "Send LTR emoji", R.drawable.baseline_warning_24));
@@ -442,6 +451,8 @@ public class MessagesController extends ViewController<MessagesController.Argume
       } else {
         pickDateOrProceed(Td.newSendOptions(), (sendOptions, disableMarkdown) -> send(sendOptions, false));
       }
+    } else if (viewId == R.id.btn_sendWithEffect) {
+      showMessageEffectPicker();
     } else if (viewId == R.id.btn_sendToast) {
       TdApi.FormattedText newText = inputView.getOutputText(true);
       CharSequence text = TD.toCharSequence(newText);
@@ -459,6 +470,65 @@ public class MessagesController extends ViewController<MessagesController.Argume
       pickDateOrProceed(Td.newSendOptions(), (sendOptions, disableMarkdown) -> send(new TdApi.InputMessageText(new TdApi.FormattedText(Text.bidiGenerateTestMessage(), new TdApi.TextEntity[0]), null, false), false, sendOptions, null));
     }
     return true;
+  }
+
+  // Message effect chosen for the next composed message; consumed by sendText.
+  // Bound to the chat it was picked in - the controller instance is reused across chats
+  private long pendingMessageEffectId;
+  private long pendingMessageEffectChatId;
+
+  private void showMessageEffectPicker () {
+    long[] effectIds = tdlib.availableReactionEffectIds();
+    if (effectIds == null || effectIds.length == 0) {
+      return;
+    }
+    final int count = Math.min(effectIds.length, 8);
+    final TdApi.MessageEffect[] effects = new TdApi.MessageEffect[count];
+    final int[] remaining = {count};
+    for (int i = 0; i < count; i++) {
+      final int index = i;
+      tdlib.client().send(new TdApi.GetMessageEffect(effectIds[i]), result -> {
+        if (result.getConstructor() == TdApi.MessageEffect.CONSTRUCTOR) {
+          effects[index] = (TdApi.MessageEffect) result;
+        }
+        // TDLib result handlers run sequentially on the same thread
+        if (--remaining[0] == 0) {
+          runOnUiThreadOptional(() -> showMessageEffectOptions(effects));
+        }
+      });
+    }
+  }
+
+  private void showMessageEffectOptions (TdApi.MessageEffect[] effects) {
+    IntList ids = new IntList(effects.length + 1);
+    StringList strings = new StringList(effects.length + 1);
+    ids.append(1);
+    strings.append(Lang.getString(R.string.EffectNone));
+    int optionId = 2;
+    for (TdApi.MessageEffect effect : effects) {
+      if (effect == null) {
+        optionId++;
+        continue;
+      }
+      ids.append(optionId);
+      strings.append(effect.emoji + (effect.isPremium ? " ⭐" : ""));
+      optionId++;
+    }
+    showOptions(Lang.getString(R.string.SendWithEffect), ids.get(), strings.get(), (optionItemView, id) -> {
+      if (id == 1) {
+        pendingMessageEffectId = 0;
+      } else {
+        TdApi.MessageEffect effect = effects[id - 2];
+        if (effect != null) {
+          pendingMessageEffectId = effect.id;
+          pendingMessageEffectChatId = getChatId();
+          if (sendButton != null) {
+            context().tooltipManager().builder(sendButton).show(tdlib, Lang.getString(R.string.EffectPending, effect.emoji)).hideDelayed();
+          }
+        }
+      }
+      return true;
+    });
   }
 
   public void pickDateOrProceed (@NonNull TdApi.MessageSendOptions initialSendOptions, TdlibUi.SimpleSendCallback sendCallback) {
@@ -9824,6 +9894,12 @@ public class MessagesController extends ViewController<MessagesController.Argume
       obtainSilentMode(),
       forceUpdateOrderOfInstalledStickerSets
     );
+    // Applied here (after all option re-wraps): Td.newSendOptions copy overload drops effectId
+    if (pendingMessageEffectId != 0 && pendingMessageEffectChatId == getChatId() && ChatId.isPrivate(getChatId())) {
+      finalSendOptions.effectId = pendingMessageEffectId;
+    }
+    pendingMessageEffectId = 0;
+    pendingMessageEffectChatId = 0;
     List<TdApi.Function<?>> functions = (List<TdApi.Function<?>>) (List<?>) TD.sendMessageText(chatId, topicId, replyTo, finalSendOptions, content, tdlib.maxMessageTextLength());
 
     if (showSlowModeRestriction(sendButton != null ? sendButton : inputView, finalSendOptions)) {

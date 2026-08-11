@@ -106,7 +106,7 @@ public class TGMessageGift extends TGMessageGiveawayBase {
     content = new Content(maxWidth - Screen.dp(CONTENT_PADDING_DP * 2));
 
     content.padding(Screen.dp(25));
-    content.add(new ContentDrawable(R.drawable.baseline_gift_72));
+    content.add(new ContentSticker(tdlib, gift.gift.sticker, 100));
     content.padding(Screen.dp(25));
 
     content.add(Lang.boldify(Lang.getString(R.string.Gift)), getTextColorSet(), currentViews);
@@ -141,7 +141,7 @@ public class TGMessageGift extends TGMessageGiveawayBase {
     content = new Content(maxWidth - Screen.dp(CONTENT_PADDING_DP * 2));
 
     content.padding(Screen.dp(25));
-    content.add(new ContentDrawable(R.drawable.baseline_gift_72));
+    content.add(new ContentSticker(tdlib, g.model.sticker, 100));
     content.padding(Screen.dp(25));
 
     content.add(Lang.boldify(g.title + " #" + g.number), getTextColorSet(), currentViews);
@@ -165,7 +165,11 @@ public class TGMessageGift extends TGMessageGiveawayBase {
     content = new Content(maxWidth - Screen.dp(CONTENT_PADDING_DP * 2));
 
     content.padding(Screen.dp(25));
-    content.add(new ContentDrawable(R.drawable.baseline_premium_star_96));
+    if (prizeStars.sticker != null) {
+      content.add(new ContentSticker(tdlib, prizeStars.sticker, 100));
+    } else {
+      content.add(new ContentDrawable(R.drawable.baseline_premium_star_96));
+    }
     content.padding(Screen.dp(25));
 
     content.add(Lang.boldify(Lang.getString(R.string.GiveawayCongratulations)), getTextColorSet(), currentViews);

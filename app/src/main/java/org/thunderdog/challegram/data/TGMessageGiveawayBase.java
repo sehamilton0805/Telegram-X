@@ -23,6 +23,7 @@ import android.view.View;
 
 import androidx.annotation.CallSuper;
 import androidx.annotation.DrawableRes;
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
 import org.drinkless.tdlib.TdApi;
@@ -32,9 +33,15 @@ import org.thunderdog.challegram.component.chat.MessagesManager;
 import org.thunderdog.challegram.component.user.BubbleWrapView2;
 import org.thunderdog.challegram.core.Lang;
 import org.thunderdog.challegram.loader.ComplexReceiver;
+import org.thunderdog.challegram.loader.DoubleImageReceiver;
+import org.thunderdog.challegram.loader.ImageFile;
+import org.thunderdog.challegram.loader.Receiver;
+import org.thunderdog.challegram.loader.gif.GifFile;
+import org.thunderdog.challegram.loader.gif.GifReceiver;
 import org.thunderdog.challegram.navigation.ViewController;
 import org.thunderdog.challegram.telegram.Tdlib;
 import org.thunderdog.challegram.theme.ColorId;
+import org.thunderdog.challegram.tool.DrawAlgorithms;
 import org.thunderdog.challegram.tool.Drawables;
 import org.thunderdog.challegram.tool.Fonts;
 import org.thunderdog.challegram.tool.PorterDuffPaint;
@@ -438,6 +445,78 @@ public abstract class TGMessageGiveawayBase extends TGMessage implements TGInlin
     @Override
     public void draw (Canvas c, MessageView v, int x, int y) {
       Drawables.draw(c, drawable, x + (width - drawable.getMinimumWidth()) / 2f, y, PorterDuffPaint.get(ColorId.icon));
+    }
+  }
+
+  // Renders a TdApi.Sticker centered in the content column. Uses fixed keys on the
+  // giveaway receiver: safe, because ContentBubbles only touches the avatar-receiver
+  // namespace (keyed by sender ids), and image/gif/preview maps are independent.
+  public static class ContentSticker extends ContentPart {
+    private static final long RECEIVER_KEY = 0;
+
+    private final ImageFile previewFile;
+    private final GifFile animatedFile;
+    private final ImageFile staticFile;
+    private final int size;
+    private int width;
+
+    public ContentSticker (Tdlib tdlib, @NonNull TdApi.Sticker sticker, int sizeDp) {
+      this.size = Screen.dp(sizeDp);
+      ImageFile preview = TD.toImageFile(tdlib, sticker.thumbnail);
+      if (preview != null) {
+        preview.setScaleType(ImageFile.FIT_CENTER);
+        preview.setSize(size);
+      }
+      this.previewFile = preview;
+      if (Td.isAnimated(sticker.format)) {
+        this.animatedFile = new GifFile(tdlib, sticker);
+        this.animatedFile.setScaleType(GifFile.FIT_CENTER);
+        this.animatedFile.setRequestedSize(size);
+        this.staticFile = null;
+      } else {
+        this.animatedFile = null;
+        this.staticFile = new ImageFile(tdlib, sticker.sticker);
+        this.staticFile.setScaleType(ImageFile.FIT_CENTER);
+        this.staticFile.setWebp();
+        this.staticFile.setSize(size);
+      }
+    }
+
+    @Override
+    public void build (int width) {
+      this.width = width;
+    }
+
+    @Override
+    public int getWidth () {
+      return size;
+    }
+
+    @Override
+    public int getHeight () {
+      return size;
+    }
+
+    @Override
+    public void draw (Canvas c, MessageView v, int x, int y) {
+      ComplexReceiver complexReceiver = v.getGiveawayAvatarsReceiver();
+      int left = x + (width - size) / 2;
+      DoubleImageReceiver preview = complexReceiver.getPreviewReceiver(RECEIVER_KEY);
+      Receiver target = animatedFile != null ? complexReceiver.getGifReceiver(RECEIVER_KEY) : complexReceiver.getImageReceiver(RECEIVER_KEY);
+      DrawAlgorithms.drawReceiver(c, preview, target, animatedFile == null, true, left, y, left + size, y + size);
+    }
+
+    @Override
+    public void requestFiles (ComplexReceiver r) {
+      r.getPreviewReceiver(RECEIVER_KEY).requestFile(null, previewFile);
+      if (animatedFile != null) {
+        GifReceiver gifReceiver = r.getGifReceiver(RECEIVER_KEY);
+        if (gifReceiver.getCurrentFile() != animatedFile) {
+          gifReceiver.requestFile(animatedFile);
+        }
+      } else {
+        r.getImageReceiver(RECEIVER_KEY).requestFile(staticFile);
+      }
     }
   }
 

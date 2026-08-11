@@ -346,6 +346,10 @@
   <string name="StarTxPremium">Подарок Premium</string>
   <string name="StarTxOther">Транзакция</string>
   <string name="StarTxEmpty">Транзакций пока нет</string>
+  <string name="SendWithEffect">Эффект сообщения</string>
+  <string name="SendEffectChange">Эффект: изменить</string>
+  <string name="EffectNone">Без эффекта</string>
+  <string name="EffectPending">Эффект %1$s будет добавлен к следующему сообщению</string>
   <string name="general_Messages">Messages</string>
   <string name="SelectChat">Select Chat</string>
   <string name="Message">Message</string>

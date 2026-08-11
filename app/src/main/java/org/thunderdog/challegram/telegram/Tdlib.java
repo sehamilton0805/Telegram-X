@@ -9777,9 +9777,20 @@ public class Tdlib implements TdlibProvider, Settings.SettingsChangeListener, Da
     }
   }
 
+  private long[] availableReactionEffectIds;
+
   @TdlibThread
   private void updateAvailableMessageEffects (TdApi.UpdateAvailableMessageEffects update) {
-    // TODO(message-effects)
+    synchronized (dataLock) {
+      this.availableReactionEffectIds = update.reactionEffectIds;
+    }
+  }
+
+  @Nullable
+  public long[] availableReactionEffectIds () {
+    synchronized (dataLock) {
+      return availableReactionEffectIds;
+    }
   }
 
   @TdlibThread
