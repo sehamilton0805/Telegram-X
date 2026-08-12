@@ -360,6 +360,7 @@
   <string name="StoriesFeed">Истории</string>
   <string name="StoriesFeedEmpty">Активных историй нет</string>
   <string name="StoriesCount">Историй: %1$d</string>
+  <string name="WebApp">мини-приложение</string>
   <string name="general_Messages">Messages</string>
   <string name="SelectChat">Select Chat</string>
   <string name="Message">Message</string>

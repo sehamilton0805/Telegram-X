@@ -194,6 +194,7 @@
   <item type="id" name="btn_stories" />
   <item type="id" name="btn_storyFeedChat" />
   <item type="id" name="controller_storiesFeed" />
+  <item type="id" name="controller_webApp" />
   <item type="id" name="controller_starTransactions" />
   <item type="id" name="controller_call" />
   <item type="id" name="controller_people" />

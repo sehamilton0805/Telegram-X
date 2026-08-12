@@ -54,6 +54,7 @@ import org.thunderdog.challegram.tool.Screen;
 import org.thunderdog.challegram.tool.UI;
 import org.thunderdog.challegram.ui.ListItem;
 import org.thunderdog.challegram.ui.MessagesController;
+import org.thunderdog.challegram.ui.WebAppController;
 import org.thunderdog.challegram.util.CustomTypefaceSpan;
 import org.thunderdog.challegram.util.DrawableProvider;
 import org.thunderdog.challegram.util.EmojiStatusHelper;
@@ -1364,9 +1365,30 @@ public class TGInlineKeyboard {
       }
 
       switch (type.getConstructor()) {
+        case TdApi.InlineKeyboardButtonTypeWebApp.CONSTRUCTOR: {
+          final String webAppUrl = ((TdApi.InlineKeyboardButtonTypeWebApp) type).url;
+          final TdApi.Message message = parent.getMessage();
+          final long botUserId = message.viaBotUserId != 0 ? message.viaBotUserId : Td.getSenderUserId(message);
+          final long chatId = parent.getChatId();
+          final Tdlib tdlib = context.context.tdlib();
+          tdlib.client().send(new TdApi.OpenWebApp(chatId, botUserId, webAppUrl, null, null, new TdApi.WebAppOpenParameters(WebAppController.buildThemeParameters(), "tgxrg", null)), result -> UI.post(() -> {
+            if (result.getConstructor() != TdApi.WebAppInfo.CONSTRUCTOR) {
+              UI.showError(result);
+              return;
+            }
+            TdApi.WebAppInfo webAppInfo = (TdApi.WebAppInfo) result;
+            ViewController<?> c = parent.context().navigation().getCurrentStackItem();
+            if (c == null || c.isDestroyed()) {
+              return;
+            }
+            WebAppController controller = new WebAppController(context.context.context(), tdlib);
+            controller.setArguments(new WebAppController.Args(botUserId, chatId, tdlib.senderName(new TdApi.MessageSenderUser(botUserId), true), webAppInfo.launchId, webAppInfo.url.url, null));
+            c.navigateTo(controller);
+          }));
+          break;
+        }
         case TdApi.InlineKeyboardButtonTypeBuy.CONSTRUCTOR:
         case TdApi.InlineKeyboardButtonTypeCopyText.CONSTRUCTOR:
-        case TdApi.InlineKeyboardButtonTypeWebApp.CONSTRUCTOR:
           // TODO
           break;
 
