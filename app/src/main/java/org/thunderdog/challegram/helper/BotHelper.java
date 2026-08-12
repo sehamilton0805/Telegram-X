@@ -177,6 +177,9 @@ public class BotHelper implements Runnable, InlineSearchContext.CommandListProvi
         this.botInfoMessage = new TGMessageBotInfo(context.getManager(), chatId, full.botInfo.description);
       }
 
+      this.webAppMenuButton = full.botInfo.menuButton;
+      context.setWebAppMenuButton(full.botInfo.menuButton, objectId);
+
       if (full.botInfo.commands.length > 0) {
         ArrayList<InlineResult<?>> commands = new ArrayList<>(full.botInfo.commands.length);
         for (TdApi.BotCommand command : full.botInfo.commands) {
@@ -184,7 +187,8 @@ public class BotHelper implements Runnable, InlineSearchContext.CommandListProvi
         }
         this.commands = commands;
         context.tdlib().uiExecute(this);
-      } else if (botInfoMessage != null) {
+      } else if (botInfoMessage != null || full.botInfo.menuButton != null) {
+        // Bots with only a menu button (no commands, no description) must still reveal the button
         context.tdlib().uiExecute(this);
       }
     }
@@ -422,9 +426,11 @@ public class BotHelper implements Runnable, InlineSearchContext.CommandListProvi
       } else {
         context.getManager().checkBotStart();
       }
-      context.updateCommandButton((botsCount > 0 || type == TYPE_PRIVATE) && hasCommands());
+      context.updateCommandButton((botsCount > 0 || type == TYPE_PRIVATE) && (hasCommands() || webAppMenuButton != null));
     }
   }
+
+  private TdApi.BotMenuButton webAppMenuButton;
 
   private boolean isDestroyed () {
     return (flags & FLAG_DESTROYED) != 0;

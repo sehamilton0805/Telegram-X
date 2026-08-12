@@ -527,6 +527,42 @@ public class MessagesController extends ViewController<MessagesController.Argume
     paidReactionGeneration++;
   }
 
+  // Mini apps: bot menu button + reply keyboard web_app buttons
+
+  private @Nullable TdApi.BotMenuButton webAppMenuButton;
+  private long webAppMenuButtonBotUserId;
+
+  public void setWebAppMenuButton (@Nullable TdApi.BotMenuButton menuButton, long botUserId) {
+    runOnUiThreadOptional(() -> {
+      this.webAppMenuButton = menuButton;
+      this.webAppMenuButtonBotUserId = menuButton != null ? botUserId : 0;
+    });
+  }
+
+  private void openWebAppByUrl (long botUserId, @Nullable String buttonText, String url) {
+    tdlib.client().send(new TdApi.GetWebAppUrl(botUserId, url, new TdApi.WebAppOpenParameters(WebAppController.buildThemeParameters(), "tgxrg", null)), result -> UI.post(() -> {
+      if (result.getConstructor() != TdApi.WebAppUrl.CONSTRUCTOR) {
+        UI.showError(result);
+        return;
+      }
+      if (isDestroyed()) {
+        return;
+      }
+      WebAppController controller = new WebAppController(context, tdlib);
+      controller.setArguments(new WebAppController.Args(botUserId, getChatId(), tdlib.senderName(new TdApi.MessageSenderUser(botUserId), true), 0, ((TdApi.WebAppUrl) result).url, buttonText));
+      navigateTo(controller);
+    }));
+  }
+
+  @Override
+  public void onOpenWebApp (String buttonText, String url) {
+    // Reply keyboards with web_app buttons are only meaningful in a private bot chat
+    long botUserId = chat != null && tdlib.isBotChat(chat) ? tdlib.chatUserId(chat) : 0;
+    if (botUserId != 0) {
+      openWebAppByUrl(botUserId, buttonText, url);
+    }
+  }
+
   // Message effect chosen for the next composed message; consumed by sendText.
   // Bound to the chat it was picked in - the controller instance is reused across chats
   private long pendingMessageEffectId;
@@ -2237,7 +2273,11 @@ public class MessagesController extends ViewController<MessagesController.Argume
     } else if (viewId == R.id.msg_command) {
       // FIXME: rely on some state, not on icon id
       if (lastCmdResource == R.drawable.deproko_baseline_bots_command_26) {
-        onCommandClick();
+        if (webAppMenuButton != null && webAppMenuButtonBotUserId != 0) {
+          openWebAppByUrl(webAppMenuButtonBotUserId, null, webAppMenuButton.url);
+        } else {
+          onCommandClick();
+        }
       } else if (lastCmdResource == R.drawable.deproko_baseline_bots_keyboard_26 ||
         lastCmdResource == R.drawable.baseline_direction_arrow_down_24 ||
         lastCmdResource == R.drawable.baseline_keyboard_24) {

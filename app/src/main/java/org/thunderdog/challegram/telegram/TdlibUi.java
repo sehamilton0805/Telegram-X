@@ -74,6 +74,7 @@ import org.thunderdog.challegram.navigation.SettingsWrap;
 import org.thunderdog.challegram.navigation.SettingsWrapBuilder;
 import org.thunderdog.challegram.navigation.TooltipOverlayView;
 import org.thunderdog.challegram.navigation.ViewController;
+import org.thunderdog.challegram.ui.WebAppController;
 import org.thunderdog.challegram.theme.ColorId;
 import org.thunderdog.challegram.theme.PropertyId;
 import org.thunderdog.challegram.theme.Theme;
@@ -4089,13 +4090,93 @@ public class TdlibUi extends Handler {
         break;
       }
 
+      case TdApi.InternalLinkTypeWebApp.CONSTRUCTOR: {
+        TdApi.InternalLinkTypeWebApp webAppLink = (TdApi.InternalLinkTypeWebApp) linkType;
+        tdlib.client().send(new TdApi.SearchPublicChat(webAppLink.botUsername), chatResult -> {
+          if (chatResult.getConstructor() != TdApi.Chat.CONSTRUCTOR) {
+            post(() -> showLinkTooltip(tdlib, R.drawable.baseline_warning_24, Lang.getStringBold(R.string.BotNotFound, webAppLink.botUsername), openParameters));
+            return;
+          }
+          TdApi.Chat botChat = tdlib.objectToChat(chatResult);
+          long botUserId = tdlib.chatUserId(botChat);
+          if (!tdlib.isBotChat(botChat) || botUserId == 0) {
+            post(() -> showLinkTooltip(tdlib, R.drawable.baseline_warning_24, Lang.getStringBold(R.string.BotNotFound, webAppLink.botUsername), openParameters));
+            return;
+          }
+          tdlib.client().send(new TdApi.SearchWebApp(botUserId, webAppLink.webAppShortName), foundResult -> post(() -> {
+            if (foundResult.getConstructor() != TdApi.FoundWebApp.CONSTRUCTOR) {
+              showLinkTooltip(tdlib, R.drawable.baseline_warning_24, Lang.getString(R.string.InternalUrlUnsupported), openParameters);
+              return;
+            }
+            TdApi.FoundWebApp foundWebApp = (TdApi.FoundWebApp) foundResult;
+            ViewController<?> c = context.context().navigation().getCurrentStackItem();
+            if (c == null || c.isDestroyed()) {
+              return;
+            }
+            Runnable open = () -> tdlib.client().send(new TdApi.GetWebAppLinkUrl(0, botUserId, webAppLink.webAppShortName, webAppLink.startParameter, foundWebApp.requestWriteAccess, new TdApi.WebAppOpenParameters(WebAppController.buildThemeParameters(), "tgxrg", null)), urlResult -> UI.post(() -> {
+              if (urlResult.getConstructor() != TdApi.WebAppUrl.CONSTRUCTOR) {
+                UI.showError(urlResult);
+                return;
+              }
+              ViewController<?> current = context.context().navigation().getCurrentStackItem();
+              if (current == null || current.isDestroyed()) {
+                return;
+              }
+              WebAppController controller = new WebAppController(context.context(), tdlib);
+              controller.setArguments(new WebAppController.Args(botUserId, 0, tdlib.senderName(new TdApi.MessageSenderUser(botUserId), true), 0, ((TdApi.WebAppUrl) urlResult).url, null));
+              current.navigateTo(controller);
+            }));
+            if (foundWebApp.skipConfirmation && !foundWebApp.requestWriteAccess) {
+              open.run();
+            } else {
+              // requestWriteAccess means the user must be ASKED before the bot may message them
+              String confirmText = Lang.getString(R.string.OpenWebAppConfirm, webAppLink.botUsername);
+              if (foundWebApp.requestWriteAccess) {
+                confirmText += "\n\n" + Lang.getString(R.string.OpenWebAppWriteAccess);
+              }
+              c.showConfirm(confirmText, Lang.getString(R.string.Open), open);
+            }
+          }));
+        });
+        return; // async
+
+      }
+      case TdApi.InternalLinkTypeMainWebApp.CONSTRUCTOR: {
+        TdApi.InternalLinkTypeMainWebApp mainWebAppLink = (TdApi.InternalLinkTypeMainWebApp) linkType;
+        tdlib.client().send(new TdApi.SearchPublicChat(mainWebAppLink.botUsername), chatResult -> {
+          if (chatResult.getConstructor() != TdApi.Chat.CONSTRUCTOR) {
+            post(() -> showLinkTooltip(tdlib, R.drawable.baseline_warning_24, Lang.getStringBold(R.string.BotNotFound, mainWebAppLink.botUsername), openParameters));
+            return;
+          }
+          TdApi.Chat botChat = tdlib.objectToChat(chatResult);
+          long botUserId = tdlib.chatUserId(botChat);
+          if (!tdlib.isBotChat(botChat) || botUserId == 0) {
+            post(() -> showLinkTooltip(tdlib, R.drawable.baseline_warning_24, Lang.getStringBold(R.string.BotNotFound, mainWebAppLink.botUsername), openParameters));
+            return;
+          }
+          tdlib.client().send(new TdApi.GetMainWebApp(0, botUserId, mainWebAppLink.startParameter, new TdApi.WebAppOpenParameters(WebAppController.buildThemeParameters(), "tgxrg", null)), appResult -> UI.post(() -> {
+            if (appResult.getConstructor() != TdApi.MainWebApp.CONSTRUCTOR) {
+              UI.showError(appResult);
+              return;
+            }
+            ViewController<?> current = context.context().navigation().getCurrentStackItem();
+            if (current == null || current.isDestroyed()) {
+              return;
+            }
+            WebAppController controller = new WebAppController(context.context(), tdlib);
+            controller.setArguments(new WebAppController.Args(botUserId, 0, tdlib.senderName(new TdApi.MessageSenderUser(botUserId), true), 0, ((TdApi.MainWebApp) appResult).url.url, null));
+            current.navigateTo(controller);
+          }));
+        });
+        return; // async
+
+      }
+
       case TdApi.InternalLinkTypeStory.CONSTRUCTOR:
       case TdApi.InternalLinkTypeLiveStory.CONSTRUCTOR:
       case TdApi.InternalLinkTypeStoryAlbum.CONSTRUCTOR:
 
       case TdApi.InternalLinkTypeAttachmentMenuBot.CONSTRUCTOR:
-      case TdApi.InternalLinkTypeWebApp.CONSTRUCTOR:
-      case TdApi.InternalLinkTypeMainWebApp.CONSTRUCTOR:
 
       case TdApi.InternalLinkTypeInvoice.CONSTRUCTOR:
 
