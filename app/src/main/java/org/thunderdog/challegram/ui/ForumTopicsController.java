@@ -311,8 +311,34 @@ public class ForumTopicsController extends RecyclerViewController<ForumTopicsCon
       if (wasInitial) {
         executeScheduledAnimation();
       }
+      checkStuckUnreadCounter();
     }));
   }
+
+  // TDLib's forum chat counter is known to get out of sync with per-topic counters.
+  // This screen is the one place where the truth is visible: once every topic is
+  // loaded and none has unread messages, a lit chat badge is provably stale - fix it
+  private void checkStuckUnreadCounter () {
+    if (!endReached) {
+      return;
+    }
+    for (TdApi.ForumTopic topic : topics) {
+      if (topic.unreadCount > 0) {
+        return;
+      }
+    }
+    if (unstickingUnreadCounter) {
+      return;
+    }
+    TdApi.Chat chat = tdlib.chat(chatId());
+    if (chat != null && chat.unreadCount > 0 && chat.lastMessage != null) {
+      unstickingUnreadCounter = true;
+      // 'after' runs on Ok (UI thread); on error the flag stays set - retrying a failing ViewMessages is pointless anyway
+      tdlib.markChatAsRead(chatId(), new TdApi.MessageSourceChatList(), false, () -> unstickingUnreadCounter = false);
+    }
+  }
+
+  private boolean unstickingUnreadCounter;
 
   private int indexOfTopic (int forumTopicId) {
     for (int i = 0; i < topics.size(); i++) {
@@ -344,6 +370,7 @@ public class ForumTopicsController extends RecyclerViewController<ForumTopicsCon
         topics.set(index, topic);
         updateTopicRow(index, topic);
       }
+      checkStuckUnreadCounter();
     }));
   }
 
@@ -649,6 +676,7 @@ public class ForumTopicsController extends RecyclerViewController<ForumTopicsCon
     nextOffsetMessageId = 0;
     nextOffsetForumTopicId = 0;
     topicsGeneration++;
+    unstickingUnreadCounter = false;
     tdlib.listeners().subscribeToMessageUpdates(newChatId, this);
     buildCells();
     ((LinearLayoutManager) getRecyclerView().getLayoutManager()).scrollToPositionWithOffset(0, 0);

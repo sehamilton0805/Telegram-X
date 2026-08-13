@@ -787,12 +787,18 @@ public class TGInlineKeyboard {
       final boolean useBubbleMode = useWhiteMode();
       // float darkFactor = Theme.getDarkFactor();
       final @ColorId int buttonColorId = overrideColorId();
+      // Bot API button styles fill the whole button, like official clients;
+      // customColorId (internal buttons) keeps tinting the text only
+      final boolean fillWithStyle = styleColorId != ColorId.NONE;
       int inlineOutlineColor = buttonColorId != ColorId.NONE ? Theme.getColor(buttonColorId) : Theme.inlineOutlineColor(isOutBubble);
       int fillingColor = 0;
 
       if (useBubbleMode) {
-        c.drawRoundRect(rounder, radius, radius, Paints.fillingPaint(fillingColor = context.context.getBubbleButtonBackgroundColor()));
+        c.drawRoundRect(rounder, radius, radius, Paints.fillingPaint(fillingColor = (fillWithStyle ? Theme.getColor(styleColorId) : context.context.getBubbleButtonBackgroundColor())));
       } else {
+        if (fillWithStyle) {
+          c.drawRoundRect(rounder, radius, radius, Paints.fillingPaint(fillingColor = Theme.getColor(styleColorId)));
+        }
         Paint paint = Paints.getInlineButtonOuterPaint();
         paint.setColor(inlineOutlineColor);
         c.drawRoundRect(rounder, radius, radius, paint);
@@ -831,7 +837,7 @@ public class TGInlineKeyboard {
 
       //noinspection ConstantConditions
       final float textColorFactor = ALLOW_INVERSE ? (selectionFactor * activeFactor * (1f - fadeFactor)) : ALLOW_ALWAYS_ACTIVE ? selectionFactor * (1f - fadeFactor) : 0f;
-      final int textColor = useBubbleMode ?
+      final int textColor = fillWithStyle ? Theme.getColor(ColorId.fillingPositiveContent) : useBubbleMode ?
         (buttonColorId != ColorId.NONE ? Theme.getColor(buttonColorId) : context.context.getBubbleButtonTextColor()) :
         ColorUtils.fromToArgb(buttonColorId != ColorId.NONE ? Theme.getColor(buttonColorId) : Theme.inlineTextColor(isOutBubble), Theme.inlineTextActiveColor(), textColorFactor);
 
@@ -880,7 +886,7 @@ public class TGInlineKeyboard {
       wrapper.draw(c, textX, cy + Screen.dp(12f + (BUTTON_TEXT_SIZE_DP - textSizeDp) / 2f), textColor, true);
 
       if (type != null) {
-        int iconColor = buttonColorId != ColorId.NONE ? Theme.getColor(buttonColorId) : Theme.inlineIconColor(isOutBubble);
+        int iconColor = fillWithStyle ? textColor : buttonColorId != ColorId.NONE ? Theme.getColor(buttonColorId) : Theme.inlineIconColor(isOutBubble);
         switch (type.getConstructor()) {
           case TdApi.InlineKeyboardButtonTypeSwitchInline.CONSTRUCTOR:
           case TdApi.InlineKeyboardButtonTypeCallbackWithPassword.CONSTRUCTOR:

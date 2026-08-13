@@ -240,9 +240,19 @@ public class CommandKeyboardLayout extends ViewGroup implements ViewTreeObserver
 
   private void applyButtonStyle (TextView text, @Nullable TdApi.ButtonStyle style) {
     final @ColorId int colorId = resolveStyleColorId(style);
-    text.setTextColor(Theme.getColor(colorId));
-    if (themeProvider != null) {
-      themeProvider.addOrUpdateThemeTextColorListener(text, colorId);
+    if (colorId == ColorId.text) {
+      ViewUtils.setBackground(text, Theme.rectSelector(4f, 0f, ColorId.chatKeyboardButton));
+      text.setTextColor(Theme.getColor(ColorId.text));
+      if (themeProvider != null) {
+        themeProvider.addOrUpdateThemeTextColorListener(text, ColorId.text);
+      }
+    } else {
+      // Styled buttons fill with the style color, like official clients
+      ViewUtils.setBackground(text, Theme.rectSelector(4f, 0f, colorId));
+      text.setTextColor(Theme.getColor(ColorId.fillingPositiveContent));
+      if (themeProvider != null) {
+        themeProvider.addOrUpdateThemeTextColorListener(text, ColorId.fillingPositiveContent);
+      }
     }
   }
 
