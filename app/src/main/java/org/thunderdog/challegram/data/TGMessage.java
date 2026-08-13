@@ -8632,8 +8632,18 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
         case TdApi.MessageStory.CONSTRUCTOR: {
           return new TGMessageStory(context, msg, (TdApi.MessageStory) content);
         }
+        case TdApi.MessageRichMessage.CONSTRUCTOR: {
+          // Degraded flat render: all block text + media counter. Full block renderer is a follow-up
+          return new TGMessageText(context, msg, TD.textFromRichMessage(((TdApi.MessageRichMessage) content).message)) {
+            @Override
+            protected boolean isSupportedMessageContent (TdApi.Message message, TdApi.MessageContent messageContent) {
+              // Force MESSAGE_REPLACE_REQUIRED on edits: the flattened text must be recomputed via valueOf,
+              // and TGMessageText's own update path cannot digest MessageRichMessage content
+              return false;
+            }
+          };
+        }
         // unsupported
-        case TdApi.MessageRichMessage.CONSTRUCTOR:
         case TdApi.MessageInvoice.CONSTRUCTOR:
         case TdApi.MessagePassportDataSent.CONSTRUCTOR:
         case TdApi.MessageChatSetBackground.CONSTRUCTOR:

@@ -2436,6 +2436,223 @@ public class TD {
     return "";
   }
 
+  // Rich messages (PageBlock-based): flatten all block text into plain FormattedText.
+  // A degraded but readable v1 render; the full block renderer is a follow-up
+  public static TdApi.FormattedText textFromRichMessage (TdApi.RichMessage richMessage) {
+    StringBuilder b = new StringBuilder();
+    int[] mediaCount = {0};
+    if (richMessage.blocks != null) {
+      for (TdApi.PageBlock block : richMessage.blocks) {
+        appendPageBlockText(b, block, mediaCount);
+      }
+    }
+    String text = b.toString().trim();
+    if (mediaCount[0] > 0) {
+      String prefix = "🖼 ×" + mediaCount[0];
+      text = text.isEmpty() ? prefix : prefix + "\n\n" + text;
+    }
+    return new TdApi.FormattedText(text, null);
+  }
+
+  private static void appendLine (StringBuilder b, @Nullable String line) {
+    if (line != null && !line.trim().isEmpty()) {
+      if (b.length() > 0) {
+        b.append('\n');
+      }
+      b.append(line.trim());
+    }
+  }
+
+  private static void appendPageBlockText (StringBuilder b, TdApi.PageBlock block, int[] mediaCount) {
+    switch (block.getConstructor()) {
+      case TdApi.PageBlockTitle.CONSTRUCTOR:
+        appendLine(b, richTextToString(((TdApi.PageBlockTitle) block).title));
+        break;
+      case TdApi.PageBlockSubtitle.CONSTRUCTOR:
+        appendLine(b, richTextToString(((TdApi.PageBlockSubtitle) block).subtitle));
+        break;
+      case TdApi.PageBlockHeader.CONSTRUCTOR:
+        appendLine(b, richTextToString(((TdApi.PageBlockHeader) block).header));
+        break;
+      case TdApi.PageBlockSubheader.CONSTRUCTOR:
+        appendLine(b, richTextToString(((TdApi.PageBlockSubheader) block).subheader));
+        break;
+      case TdApi.PageBlockSectionHeading.CONSTRUCTOR:
+        appendLine(b, richTextToString(((TdApi.PageBlockSectionHeading) block).text));
+        break;
+      case TdApi.PageBlockKicker.CONSTRUCTOR:
+        appendLine(b, richTextToString(((TdApi.PageBlockKicker) block).kicker));
+        break;
+      case TdApi.PageBlockParagraph.CONSTRUCTOR:
+        appendLine(b, richTextToString(((TdApi.PageBlockParagraph) block).text));
+        break;
+      case TdApi.PageBlockPreformatted.CONSTRUCTOR:
+        appendLine(b, richTextToString(((TdApi.PageBlockPreformatted) block).text));
+        break;
+      case TdApi.PageBlockFooter.CONSTRUCTOR:
+        appendLine(b, richTextToString(((TdApi.PageBlockFooter) block).footer));
+        break;
+      case TdApi.PageBlockBlockQuote.CONSTRUCTOR: {
+        TdApi.PageBlockBlockQuote quote = (TdApi.PageBlockBlockQuote) block;
+        StringBuilder inner = new StringBuilder();
+        if (quote.blocks != null) {
+          for (TdApi.PageBlock innerBlock : quote.blocks) {
+            appendPageBlockText(inner, innerBlock, mediaCount);
+          }
+        }
+        appendLine(b, inner.length() > 0 ? "❝ " + inner.toString().replace("\n", " ") : null);
+        break;
+      }
+      case TdApi.PageBlockPullQuote.CONSTRUCTOR: {
+        String text = richTextToString(((TdApi.PageBlockPullQuote) block).text);
+        appendLine(b, text != null && !text.isEmpty() ? "❝ " + text : null);
+        break;
+      }
+      case TdApi.PageBlockList.CONSTRUCTOR: {
+        TdApi.PageBlockList list = (TdApi.PageBlockList) block;
+        if (list.items != null) {
+          for (TdApi.PageBlockListItem item : list.items) {
+            StringBuilder inner = new StringBuilder();
+            if (item.blocks != null) {
+              for (TdApi.PageBlock innerBlock : item.blocks) {
+                appendPageBlockText(inner, innerBlock, mediaCount);
+              }
+            }
+            appendLine(b, inner.length() > 0 ? "• " + inner.toString().replace("\n", " ") : null);
+          }
+        }
+        break;
+      }
+      case TdApi.PageBlockDetails.CONSTRUCTOR: {
+        TdApi.PageBlockDetails details = (TdApi.PageBlockDetails) block;
+        appendLine(b, richTextToString(details.header));
+        if (details.blocks != null) {
+          for (TdApi.PageBlock innerBlock : details.blocks) {
+            appendPageBlockText(b, innerBlock, mediaCount);
+          }
+        }
+        break;
+      }
+      case TdApi.PageBlockCover.CONSTRUCTOR:
+        appendPageBlockText(b, ((TdApi.PageBlockCover) block).cover, mediaCount);
+        break;
+      case TdApi.PageBlockCollage.CONSTRUCTOR: {
+        TdApi.PageBlockCollage collage = (TdApi.PageBlockCollage) block;
+        if (collage.blocks != null) {
+          for (TdApi.PageBlock innerBlock : collage.blocks) {
+            appendPageBlockText(b, innerBlock, mediaCount);
+          }
+        }
+        appendCaption(b, collage.caption);
+        break;
+      }
+      case TdApi.PageBlockSlideshow.CONSTRUCTOR: {
+        TdApi.PageBlockSlideshow slideshow = (TdApi.PageBlockSlideshow) block;
+        if (slideshow.blocks != null) {
+          for (TdApi.PageBlock innerBlock : slideshow.blocks) {
+            appendPageBlockText(b, innerBlock, mediaCount);
+          }
+        }
+        appendCaption(b, slideshow.caption);
+        break;
+      }
+      case TdApi.PageBlockPhoto.CONSTRUCTOR:
+        mediaCount[0]++;
+        appendCaption(b, ((TdApi.PageBlockPhoto) block).caption);
+        break;
+      case TdApi.PageBlockVideo.CONSTRUCTOR:
+        mediaCount[0]++;
+        appendCaption(b, ((TdApi.PageBlockVideo) block).caption);
+        break;
+      case TdApi.PageBlockAnimation.CONSTRUCTOR:
+        mediaCount[0]++;
+        appendCaption(b, ((TdApi.PageBlockAnimation) block).caption);
+        break;
+      case TdApi.PageBlockAudio.CONSTRUCTOR:
+        mediaCount[0]++;
+        appendCaption(b, ((TdApi.PageBlockAudio) block).caption);
+        break;
+      case TdApi.PageBlockVoiceNote.CONSTRUCTOR:
+        mediaCount[0]++;
+        appendCaption(b, ((TdApi.PageBlockVoiceNote) block).caption);
+        break;
+      default:
+        // Dividers, anchors, tables, maps, embeds etc. - skipped in the flat render
+        break;
+    }
+  }
+
+  private static void appendCaption (StringBuilder b, @Nullable TdApi.PageBlockCaption caption) {
+    if (caption != null) {
+      appendLine(b, richTextToString(caption.text));
+    }
+  }
+
+  public static @Nullable String richTextToString (@Nullable TdApi.RichText richText) {
+    if (richText == null) {
+      return null;
+    }
+    StringBuilder b = new StringBuilder();
+    appendRichText(b, richText);
+    return b.toString();
+  }
+
+  private static void appendRichText (StringBuilder b, @Nullable TdApi.RichText richText) {
+    if (richText == null) {
+      return;
+    }
+    switch (richText.getConstructor()) {
+      case TdApi.RichTextPlain.CONSTRUCTOR:
+        b.append(((TdApi.RichTextPlain) richText).text);
+        break;
+      case TdApi.RichTextBold.CONSTRUCTOR:
+        appendRichText(b, ((TdApi.RichTextBold) richText).text);
+        break;
+      case TdApi.RichTextItalic.CONSTRUCTOR:
+        appendRichText(b, ((TdApi.RichTextItalic) richText).text);
+        break;
+      case TdApi.RichTextUnderline.CONSTRUCTOR:
+        appendRichText(b, ((TdApi.RichTextUnderline) richText).text);
+        break;
+      case TdApi.RichTextStrikethrough.CONSTRUCTOR:
+        appendRichText(b, ((TdApi.RichTextStrikethrough) richText).text);
+        break;
+      case TdApi.RichTextFixed.CONSTRUCTOR:
+        appendRichText(b, ((TdApi.RichTextFixed) richText).text);
+        break;
+      case TdApi.RichTextUrl.CONSTRUCTOR:
+        appendRichText(b, ((TdApi.RichTextUrl) richText).text);
+        break;
+      case TdApi.RichTextEmailAddress.CONSTRUCTOR:
+        appendRichText(b, ((TdApi.RichTextEmailAddress) richText).text);
+        break;
+      case TdApi.RichTextSubscript.CONSTRUCTOR:
+        appendRichText(b, ((TdApi.RichTextSubscript) richText).text);
+        break;
+      case TdApi.RichTextSuperscript.CONSTRUCTOR:
+        appendRichText(b, ((TdApi.RichTextSuperscript) richText).text);
+        break;
+      case TdApi.RichTextMarked.CONSTRUCTOR:
+        appendRichText(b, ((TdApi.RichTextMarked) richText).text);
+        break;
+      case TdApi.RichTextPhoneNumber.CONSTRUCTOR:
+        appendRichText(b, ((TdApi.RichTextPhoneNumber) richText).text);
+        break;
+      case TdApi.RichTexts.CONSTRUCTOR: {
+        TdApi.RichTexts texts = (TdApi.RichTexts) richText;
+        if (texts.texts != null) {
+          for (TdApi.RichText innerText : texts.texts) {
+            appendRichText(b, innerText);
+          }
+        }
+        break;
+      }
+      default:
+        // Icons, anchors, references, math etc. - no plain-text representation
+        break;
+    }
+  }
+
   public static @Nullable TdApi.ChecklistTask findTask (TdApi.ChecklistTask[] tasks, int taskId) {
     for (TdApi.ChecklistTask task : tasks) {
       if (task.id == taskId) {
