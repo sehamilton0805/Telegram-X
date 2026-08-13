@@ -2439,6 +2439,10 @@ public class TD {
   // Rich messages (PageBlock-based): flatten all block text into plain FormattedText.
   // A degraded but readable v1 render; the full block renderer is a follow-up
   public static TdApi.FormattedText textFromRichMessage (TdApi.RichMessage richMessage) {
+    return textFromRichMessage(richMessage, true);
+  }
+
+  public static TdApi.FormattedText textFromRichMessage (TdApi.RichMessage richMessage, boolean includeMediaCounter) {
     StringBuilder b = new StringBuilder();
     int[] mediaCount = {0};
     if (richMessage.blocks != null) {
@@ -2447,7 +2451,7 @@ public class TD {
       }
     }
     String text = b.toString().trim();
-    if (mediaCount[0] > 0) {
+    if (includeMediaCounter && mediaCount[0] > 0) {
       String prefix = "🖼 ×" + mediaCount[0];
       text = text.isEmpty() ? prefix : prefix + "\n\n" + text;
     }
