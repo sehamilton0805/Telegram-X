@@ -489,7 +489,9 @@ public class InstantViewController extends ViewController<InstantViewController.
     }
     // recyclerView.setItemAnimator(new CustomItemAnimator(Anim.DECELERATE_INTERPOLATOR, 180l));
 
-    if (!isReplace) {
+    if (!isReplace && !StringUtils.isEmpty(getUrl())) {
+      // Synthetic instant views (e.g. TGMessageRich) have no real backing URL to refetch -
+      // GetWebPageInstantView("", ...) would always fail server-side and surface an error toast
       tdlib.send(new TdApi.GetWebPageInstantView(getUrl(), false), (webPageInstantView, error) -> {
         if (error != null) {
           UI.showError(error);

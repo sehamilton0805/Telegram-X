@@ -35,12 +35,14 @@ import java.util.ArrayList;
 import java.util.List;
 
 // Rich messages (PageBlock-based posts): all media blocks rendered as an
-// album-style mosaic, the flattened block text below. The full per-block
-// renderer (tables, embeds, a real carousel) remains a follow-up
-public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickListener {
+// album-style mosaic, the flattened block text below. Tapping the text opens
+// the full post through the native Instant View engine (tables, slideshows,
+// embeds and block order all render there) via a synthetic instant view page
+public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickListener, me.vkryl.android.util.ClickHelper.Delegate {
   private final TdApi.RichMessage richMessage;
   private final ArrayList<TdApi.PageBlock> mediaBlocks;
   private final ArrayList<MediaWrapper> wrappers = new ArrayList<>();
+  private final me.vkryl.android.util.ClickHelper clickHelper = new me.vkryl.android.util.ClickHelper(this);
   private MosaicWrapper mosaicWrapper;
   private TextWrapper text;
 
@@ -223,7 +225,57 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
     if (text != null && text.onTouchEvent(view, e)) {
       return true;
     }
-    return mosaicWrapper != null && mosaicWrapper.onTouchEvent(view, e);
+    if (mosaicWrapper != null && mosaicWrapper.onTouchEvent(view, e)) {
+      return true;
+    }
+    return clickHelper.onTouchEvent(view, e);
+  }
+
+  // Tapping the text area opens the full post in the Instant View engine
+
+  @Override
+  public boolean needClickAt (View view, float x, float y) {
+    if (text == null) {
+      return false;
+    }
+    float contentY = y - getContentY();
+    float textTop = mosaicWrapper != null ? mosaicWrapper.getHeight() + Screen.dp(10f) : 0;
+    return contentY >= textTop && contentY <= textTop + text.getHeight();
+  }
+
+  @Override
+  public void onClickAt (View view, float x, float y) {
+    openFullView();
+  }
+
+  private boolean openingFullView;
+
+  private void openFullView () {
+    if (openingFullView) {
+      return;
+    }
+    if (richMessage.isFull) {
+      showInstantView(richMessage);
+      return;
+    }
+    openingFullView = true;
+    tdlib.client().send(new TdApi.GetFullRichMessage(msg.chatId, msg.id), result -> runOnUiThreadOptional(() -> {
+      openingFullView = false;
+      showInstantView(result.getConstructor() == TdApi.RichMessage.CONSTRUCTOR ? (TdApi.RichMessage) result : richMessage);
+    }));
+  }
+
+  private void showInstantView (TdApi.RichMessage rich) {
+    // Synthetic page: the native Instant View engine renders every block type.
+    // The controller only reads url/displayUrl/siteName from the link preview
+    TdApi.WebPageInstantView instantView = new TdApi.WebPageInstantView(rich.blocks, 0, 2, rich.isRtl, true, null);
+    TdApi.LinkPreview linkPreview = new TdApi.LinkPreview();
+    linkPreview.url = "";
+    linkPreview.displayUrl = "";
+    linkPreview.siteName = tdlib.senderName(msg.senderId, true);
+    org.thunderdog.challegram.ui.InstantViewController controller = new org.thunderdog.challegram.ui.InstantViewController(context(), tdlib);
+    controller.setArguments(new org.thunderdog.challegram.ui.InstantViewController.Args(linkPreview, instantView, null));
+    controller.show();
   }
 
   @Override
