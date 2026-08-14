@@ -455,7 +455,7 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
         float dx = e.getX() - pagerTouchStartX;
         float dy = e.getY() - pagerTouchStartY;
         if (!pagerDragging) {
-          int slop = Screen.getTouchSlop();
+          float slop = Screen.getTouchSlop();
           if (Math.abs(dy) > slop && Math.abs(dy) > Math.abs(dx)) {
             dropPagerTouch();
             return false;
