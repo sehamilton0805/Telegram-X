@@ -215,6 +215,9 @@ public class UI {
     if (Config.SERVICES_ENABLED) {
       startService(new Intent(getAppContext(), NetworkListenerService.class), false, false, null);
     }
+    if (org.thunderdog.challegram.unsorted.Settings.instance().needKeepAliveService()) {
+      org.thunderdog.challegram.service.KeepAliveService.ensureRunning(getAppContext(), true);
+    }
   }
 
   public static boolean isTablet () {

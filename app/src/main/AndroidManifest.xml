@@ -179,6 +179,17 @@
     </service>
 
     <service
+      android:name=".service.KeepAliveService"
+      android:enabled="true"
+      android:exported="false"
+      android:foregroundServiceType="specialUse"
+      android:stopWithTask="false">
+      <property
+        android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+        android:value="Telegram X is a messaging app. At the user's explicit request (an opt-in toggle in notification settings) the app keeps a persistent connection to Telegram so that new message notifications arrive instantly and reliably. Other foreground service types do not fit this use case, or have time limits on Android 15." />
+    </service>
+
+    <service
       android:name=".service.BootListenerService"
       android:enabled="@bool/bootServiceEnabled"
       android:exported="false"

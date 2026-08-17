@@ -5809,6 +5809,9 @@
   <string name="SlowFileAccess">Slow file access. Message will be sent after reading the files</string>
   <string name="EditMediaRestricted">You cannot change the media type</string>
 
+  <string name="KeepAliveService">Постоянное соединение</string>
+  <string name="KeepAliveServiceDesc">Держит фоновое соединение с Telegram: уведомления приходят мгновенно, даже когда пуши задерживаются или аккаунт онлайн на другом устройстве. Показывает тихое системное уведомление и немного расходует батарею.</string>
+  <string name="KeepAliveNotification">Постоянное соединение активно</string>
   <string name="ForegroundSync">Fetch missing notifications</string>
   <string name="ForegroundSyncDesc">Allow app to show **\"Checking for new messages\"** in the system tray to fetch missing data required to display a notification about a new message.</string>
   <string name="ForegroundSyncDescOn">You may periodically see **\"Checking for new messages\"** in the system tray while app is closed until all notifications are properly shown.</string>

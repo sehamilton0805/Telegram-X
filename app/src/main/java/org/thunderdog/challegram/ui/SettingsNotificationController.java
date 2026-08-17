@@ -976,6 +976,8 @@ public class SettingsNotificationController extends RecyclerViewController<Setti
         } else if (itemId == R.id.btn_foregroundSync) {
           boolean value = Settings.instance().getNewSetting(Settings.SETTING_FLAG_FOREGROUND_SERVICE_ENABLED);
           view.getToggler().setRadioEnabled(value, isUpdate);
+        } else if (itemId == R.id.btn_keepAliveService) {
+          view.getToggler().setRadioEnabled(Settings.instance().needKeepAliveService(), isUpdate);
         } else if (itemId == R.id.btn_inApp_chatSounds) {
           view.getToggler().setRadioEnabled(tdlib.notifications().areInAppChatSoundsEnabled(), isUpdate);
         } else if (itemId == R.id.btn_customChat_pinnedMessages) {
@@ -1234,6 +1236,11 @@ public class SettingsNotificationController extends RecyclerViewController<Setti
         }
 
         items.add(new ListItem(ListItem.TYPE_SHADOW_TOP));
+        items.add(new ListItem(ListItem.TYPE_RADIO_SETTING, R.id.btn_keepAliveService, 0, R.string.KeepAliveService));
+        items.add(new ListItem(ListItem.TYPE_SHADOW_BOTTOM));
+        items.add(new ListItem(ListItem.TYPE_DESCRIPTION, 0, 0, R.string.KeepAliveServiceDesc));
+
+        items.add(new ListItem(ListItem.TYPE_SHADOW_TOP));
         items.add(new ListItem(ListItem.TYPE_SETTING, R.id.btn_archiveSettings, 0, R.string.ArchiveSettings));
         items.add(new ListItem(ListItem.TYPE_SHADOW_BOTTOM));
         items.add(new ListItem(ListItem.TYPE_DESCRIPTION, 0, 0, R.string.ArchiveSettingsDesc));
@@ -1468,6 +1475,10 @@ public class SettingsNotificationController extends RecyclerViewController<Setti
     } else if (viewId == R.id.btn_customChat_preview) {
       tdlib.notifications().toggleShowPreview(customChatId);
       adapter.updateValuedSettingById(R.id.btn_customChat_preview);
+    } else if (viewId == R.id.btn_keepAliveService) {
+      boolean value = adapter.toggleView(v);
+      Settings.instance().setNeedKeepAliveService(value);
+      org.thunderdog.challegram.service.KeepAliveService.ensureRunning(context, value);
     } else if (viewId == R.id.btn_foregroundSync) {
       boolean value = adapter.toggleView(v);
       Settings.instance().setNewSetting(Settings.SETTING_FLAG_FOREGROUND_SERVICE_ENABLED, value);

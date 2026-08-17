@@ -35,6 +35,9 @@ public class BootListenerService extends Service {
   @Override
   public int onStartCommand (Intent intent, int flags, int startId) {
     UI.initApp(getApplicationContext());
+    if (org.thunderdog.challegram.unsorted.Settings.instance().needKeepAliveService()) {
+      KeepAliveService.ensureRunning(getApplicationContext(), true);
+    }
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
       stopSelf();
     } else {
