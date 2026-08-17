@@ -14,10 +14,12 @@
  */
 package org.thunderdog.challegram.service;
 
+import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
+import android.os.Build;
 import android.os.IBinder;
 
 import androidx.annotation.Nullable;
@@ -27,7 +29,6 @@ import androidx.core.content.ContextCompat;
 import org.thunderdog.challegram.Log;
 import org.thunderdog.challegram.MainActivity;
 import org.thunderdog.challegram.R;
-import org.thunderdog.challegram.U;
 import org.thunderdog.challegram.core.Lang;
 import org.thunderdog.challegram.telegram.Tdlib;
 import org.thunderdog.challegram.telegram.TdlibAccount;
@@ -70,10 +71,29 @@ public class KeepAliveService extends Service {
     return START_STICKY;
   }
 
+  private String getKeepAliveNotificationChannel () {
+    // Dedicated IMPORTANCE_MIN channel: no status bar icon, only a collapsed
+    // row at the bottom of the shade; the user can silence the channel
+    // entirely in system settings without affecting other notifications
+    String id = "keep_alive";
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+      android.app.NotificationChannel channel = new android.app.NotificationChannel(id, Lang.getString(R.string.KeepAliveService), NotificationManager.IMPORTANCE_MIN);
+      channel.setShowBadge(false);
+      NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+      try {
+        manager.createNotificationChannel(channel);
+      } catch (Throwable t) {
+        Log.w("KeepAliveService: unable to create notification channel: %s", Log.toString(t));
+      }
+    }
+    return id;
+  }
+
   private void startForegroundWithNotification () {
-    NotificationCompat.Builder b = new NotificationCompat.Builder(this, U.getOtherNotificationChannel())
+    NotificationCompat.Builder b = new NotificationCompat.Builder(this, getKeepAliveNotificationChannel())
       .setSmallIcon(R.drawable.baseline_sync_24)
       .setContentTitle(Lang.getString(R.string.KeepAliveNotification))
+      .setPriority(NotificationCompat.PRIORITY_MIN)
       .setOngoing(true)
       .setShowWhen(false)
       .setContentIntent(PendingIntent.getActivity(this, 0, new Intent(this, MainActivity.class), Intents.mutabilityFlags(false)));
