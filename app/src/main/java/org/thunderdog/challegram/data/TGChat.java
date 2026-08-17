@@ -1458,7 +1458,9 @@ public class TGChat implements TdlibStatusManager.HelperTarget, ContentPreview.R
   private void setContentPreview (ContentPreview preview) {
     if (textIconIds != null)
       textIconIds.clear();
-    setTextValue(preview.buildText(true), preview.formattedText != null ? preview.formattedText.entities : null, preview.isTranslatable);
+    // buildFormattedText keeps entity offsets in sync when a text prefix is prepended
+    TdApi.FormattedText previewText = preview.buildFormattedText(true);
+    setTextValue(previewText.text, previewText.entities, preview.isTranslatable);
     this.currentPreview = preview;
     TdApi.Message lastMessage = chat != null ? chat.lastMessage : null;
     if (preview.parentEmoji != null) {

@@ -223,13 +223,15 @@ public class ReplyComponent implements Client.ResultHandler, Destroyable {
   private void buildContent () {
     int width = getContentWidth(false);
 
+    // buildFormattedText keeps entity offsets in sync when a text prefix is prepended
+    TdApi.FormattedText contentText = content != null ? content.buildFormattedText(true) : null;
     //noinspection UnsafeOptInUsageError
-    Text trimmedContent = new Text.Builder(content != null ? content.buildText(true) : Lang.getString(R.string.LoadingMessage), width, isMessageComponent() ? TGMessage.getTextStyleProvider() : getTextStyleProvider(), getContentColorSet())
+    Text trimmedContent = new Text.Builder(contentText != null ? contentText.text : Lang.getString(R.string.LoadingMessage), width, isMessageComponent() ? TGMessage.getTextStyleProvider() : getTextStyleProvider(), getContentColorSet())
       .singleLine()
       .textFlags(Text.FLAG_CUSTOM_LONG_PRESS)
       .ignoreNewLines().ignoreContinuousNewLines()
       .entities(
-        content != null && !Td.isEmpty(content.formattedText) ? TextEntity.valueOf(tdlib, content.formattedText.text, content.formattedText.entities, null) : null,
+        contentText != null && !Td.isEmpty(contentText) ? TextEntity.valueOf(tdlib, contentText.text, contentText.entities, null) : null,
         (text, specificMedia) -> {
           if (isMessageComponent()) {
             parent.invalidateReplyTextMediaReceiver(text, specificMedia);
