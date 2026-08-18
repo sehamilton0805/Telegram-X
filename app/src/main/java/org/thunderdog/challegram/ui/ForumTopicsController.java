@@ -239,6 +239,22 @@ public class ForumTopicsController extends RecyclerViewController<ForumTopicsCon
     }
   }
 
+  // Topic-level twin of checkStuckUnreadCounter: when the topic's own read
+  // watermark stands at or past its last message, a lit unread counter is
+  // provably counting ghosts (deleted messages etc.) - force a recount.
+  // One attempt per topic per screen to avoid loops on a stubborn server
+  private final java.util.HashSet<Integer> phantomTopicHealAttempts = new java.util.HashSet<>();
+
+  private void healPhantomTopicCounters () {
+    for (TdApi.ForumTopic topic : topics) {
+      if (topic.unreadCount > 0 && topic.lastMessage != null &&
+        topic.lastMessage.id <= topic.lastReadInboxMessageId &&
+        phantomTopicHealAttempts.add(topic.info.forumTopicId)) {
+        tdlib.client().send(new TdApi.ViewMessages(chatId(), new long[] {topic.lastMessage.id}, new TdApi.MessageSourceForumTopicHistory(), true), tdlib.okHandler());
+      }
+    }
+  }
+
   private void setTopicData (BetterChatView chatView, TdApi.ForumTopic topic) {
     chatView.setTopicStyle();
     String name = topic.info.name + (topic.info.isClosed ? " 🔒" : "");
@@ -396,6 +412,7 @@ public class ForumTopicsController extends RecyclerViewController<ForumTopicsCon
         executeScheduledAnimation();
       }
       checkStuckUnreadCounter();
+      healPhantomTopicCounters();
       refreshCurrentRailBadge();
       // Eager load: both the stale-badge healer and the list itself want the
       // full set without waiting for the user to scroll; the terminating empty
@@ -485,6 +502,7 @@ public class ForumTopicsController extends RecyclerViewController<ForumTopicsCon
         }
       }
       checkStuckUnreadCounter();
+      healPhantomTopicCounters();
       refreshCurrentRailBadge();
     }));
   }
@@ -808,6 +826,7 @@ public class ForumTopicsController extends RecyclerViewController<ForumTopicsCon
     unstickingUnreadCounter = false;
     cacheRefreshPending = false;
     loadRetryCount = 0;
+    phantomTopicHealAttempts.clear();
     tdlib.listeners().subscribeToMessageUpdates(newChatId, this);
     tdlib.listeners().subscribeToChatUpdates(newChatId, this);
     showCachedTopicsIfAny();
