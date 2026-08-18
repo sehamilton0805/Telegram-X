@@ -33,6 +33,7 @@ import org.thunderdog.challegram.data.ContentPreview;
 import org.thunderdog.challegram.data.TD;
 import org.thunderdog.challegram.loader.AvatarReceiver;
 import org.thunderdog.challegram.telegram.ChatListListener;
+import org.thunderdog.challegram.telegram.ChatListener;
 import org.thunderdog.challegram.telegram.ForumTopicInfoListener;
 import org.thunderdog.challegram.telegram.MessageListener;
 import org.thunderdog.challegram.telegram.Tdlib;
@@ -63,7 +64,7 @@ import me.vkryl.core.collection.IntList;
 import me.vkryl.core.lambda.Destroyable;
 import tgx.td.ChatPosition;
 
-public class ForumTopicsController extends RecyclerViewController<ForumTopicsController.Args> implements View.OnClickListener, View.OnLongClickListener, MessageListener, ForumTopicInfoListener, ChatListListener {
+public class ForumTopicsController extends RecyclerViewController<ForumTopicsController.Args> implements View.OnClickListener, View.OnLongClickListener, MessageListener, ForumTopicInfoListener, ChatListListener, ChatListener {
   public static class Args {
     public final long chatId;
 
@@ -185,6 +186,7 @@ public class ForumTopicsController extends RecyclerViewController<ForumTopicsCon
       }
     });
     tdlib.listeners().subscribeToMessageUpdates(chatId(), this);
+    tdlib.listeners().subscribeToChatUpdates(chatId(), this);
     loadMore();
   }
 
@@ -339,6 +341,26 @@ public class ForumTopicsController extends RecyclerViewController<ForumTopicsCon
   }
 
   private boolean unstickingUnreadCounter;
+
+  @Override
+  public void onChatReadInbox (long chatId, long lastReadInboxMessageId, int unreadCount, boolean availabilityChanged) {
+    if (chatId == chatId()) {
+      tdlib.ui().post(() -> {
+        if (!isDestroyed()) {
+          // Aggregate state changed - stale latch from a failed attempt no longer applies
+          unstickingUnreadCounter = false;
+          checkStuckUnreadCounter();
+        }
+      });
+    }
+  }
+
+  @Override
+  public void onFocus () {
+    super.onFocus();
+    // Returning from a topic: per-topic counters were just consumed there
+    checkStuckUnreadCounter();
+  }
 
   private int indexOfTopic (int forumTopicId) {
     for (int i = 0; i < topics.size(); i++) {
@@ -664,6 +686,7 @@ public class ForumTopicsController extends RecyclerViewController<ForumTopicsCon
   private void switchToForum (long newChatId) {
     long oldChatId = chatId();
     tdlib.listeners().unsubscribeFromMessageUpdates(oldChatId, this);
+    tdlib.listeners().unsubscribeFromChatUpdates(oldChatId, this);
     for (TdApi.ForumTopic topic : topics) {
       tdlib.listeners().unsubscribeFromForumTopicUpdates(oldChatId, topic.info.forumTopicId, this);
     }
@@ -678,6 +701,7 @@ public class ForumTopicsController extends RecyclerViewController<ForumTopicsCon
     topicsGeneration++;
     unstickingUnreadCounter = false;
     tdlib.listeners().subscribeToMessageUpdates(newChatId, this);
+    tdlib.listeners().subscribeToChatUpdates(newChatId, this);
     buildCells();
     ((LinearLayoutManager) getRecyclerView().getLayoutManager()).scrollToPositionWithOffset(0, 0);
     loadMore();
@@ -701,6 +725,7 @@ public class ForumTopicsController extends RecyclerViewController<ForumTopicsCon
   public void destroy () {
     super.destroy();
     tdlib.listeners().unsubscribeFromMessageUpdates(chatId(), this);
+    tdlib.listeners().unsubscribeFromChatUpdates(chatId(), this);
     for (TdApi.ForumTopic topic : topics) {
       tdlib.listeners().unsubscribeFromForumTopicUpdates(chatId(), topic.info.forumTopicId, this);
     }
