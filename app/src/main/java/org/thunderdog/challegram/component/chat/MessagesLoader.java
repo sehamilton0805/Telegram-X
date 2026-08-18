@@ -154,6 +154,7 @@ public class MessagesLoader implements Client.ResultHandler {
     this.topicId = topicId;
     this.specialMode = mode;
     this.searchFilter = filter;
+    this.topicLastReadInboxMessageId = 0;
     this.messageSource = newMessageSource();
     recycleMessageViewer();
     this.viewport = tdlib.messageViewer().createViewport(messageSource, manager.controller());
@@ -1059,6 +1060,13 @@ public class MessagesLoader implements Client.ResultHandler {
     }
   }
 
+  // The topic's own inbox watermark, delivered as the unread anchor of the
+  // initial load. Chat-level watermarks aggregate all topics and would place
+  // the unread separator (and the anchor override) at other topics' messages.
+  // Scoped strictly to forum topics: saved messages, threads and direct
+  // messages topics keep their existing watermark semantics
+  private long topicLastReadInboxMessageId;
+
   public void loadFromStart (MessageId startMessageId) {
     reuse();
 
@@ -1066,6 +1074,7 @@ public class MessagesLoader implements Client.ResultHandler {
     canLoadBottom = false;
     scrollMessageId = startMessageId;
     scrollHighlightMode = MessagesManager.HIGHLIGHT_MODE_NONE;
+    topicLastReadInboxMessageId = 0;
 
     load(startMessageId, 0, CHUNK_SIZE_SMALL, MODE_INITIAL, true, true, true);
   }
@@ -1076,6 +1085,7 @@ public class MessagesLoader implements Client.ResultHandler {
     canLoadTop = canLoadBottom = force;
     scrollMessageId = messageId;
     scrollHighlightMode = highlightMode;
+    topicLastReadInboxMessageId = topicId != null && topicId.getConstructor() == TdApi.MessageTopicForum.CONSTRUCTOR && messageThread == null && highlightMode == MessagesManager.HIGHLIGHT_MODE_UNREAD ? messageId.getMessageId() : 0;
 
     load(messageId, CHUNK_SEARCH_OFFSET, CHUNK_SIZE_SEARCH, force ? MODE_INITIAL : MODE_REPEAT_INITIAL, false, true, true);
   }
@@ -1336,8 +1346,16 @@ public class MessagesLoader implements Client.ResultHandler {
     } else if (chat != null) {
       chatId = chat.id;
       lastReadOutboxMessageId = chat.lastReadOutboxMessageId;
-      lastReadInboxMessageId = chat.lastReadInboxMessageId;
-      hasUnreadMessages = chat.unreadCount > 0;
+      if (topicId != null && topicId.getConstructor() == TdApi.MessageTopicForum.CONSTRUCTOR) {
+        // (forum only: saved-messages and direct-messages topics keep chat-level watermarks)
+        // Topic view: judge unread state by the topic's own watermark - the
+        // chat-level one points at other topics and drags the anchor there
+        lastReadInboxMessageId = topicLastReadInboxMessageId;
+        hasUnreadMessages = topicLastReadInboxMessageId != 0;
+      } else {
+        lastReadInboxMessageId = chat.lastReadInboxMessageId;
+        hasUnreadMessages = chat.unreadCount > 0;
+      }
     } else {
       chatId = lastReadInboxMessageId = lastReadOutboxMessageId = 0;
       hasUnreadMessages = false;

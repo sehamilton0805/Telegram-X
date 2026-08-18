@@ -44,9 +44,9 @@ import org.thunderdog.challegram.telegram.TdlibChatListSlice;
 import org.thunderdog.challegram.telegram.TdlibUi;
 import org.thunderdog.challegram.theme.ColorId;
 import org.thunderdog.challegram.theme.Theme;
-import org.thunderdog.challegram.unsorted.Settings;
 import org.thunderdog.challegram.tool.Paints;
 import org.thunderdog.challegram.tool.Screen;
+import org.thunderdog.challegram.tool.UI;
 import org.thunderdog.challegram.tool.Views;
 import org.thunderdog.challegram.util.StringList;
 import org.thunderdog.challegram.util.text.Counter;
@@ -190,7 +190,53 @@ public class ForumTopicsController extends RecyclerViewController<ForumTopicsCon
     });
     tdlib.listeners().subscribeToMessageUpdates(chatId(), this);
     tdlib.listeners().subscribeToChatUpdates(chatId(), this);
+    showCachedTopicsIfAny();
+    buildCells();
     loadMore();
+  }
+
+  // Session cache: repeat entries render instantly and the network refresh
+  // rebuilds the list from scratch, which also cuts GetForumTopics traffic
+  private static final java.util.HashMap<String, ArrayList<TdApi.ForumTopic>> topicsSessionCache = new java.util.HashMap<>();
+  private boolean cacheRefreshPending;
+
+  // chat ids are only unique within one account
+  private String topicsCacheKey () {
+    return tdlib.id() + "_" + chatId();
+  }
+  private int loadRetryCount;
+
+  private void showCachedTopicsIfAny () {
+    ArrayList<TdApi.ForumTopic> cached = topicsSessionCache.get(topicsCacheKey());
+    if (cached != null && !cached.isEmpty() && topics.isEmpty()) {
+      for (TdApi.ForumTopic topic : cached) {
+        topics.add(topic);
+        tdlib.listeners().subscribeToForumTopicUpdates(chatId(), topic.info.forumTopicId, this);
+      }
+      cacheRefreshPending = true;
+    }
+  }
+
+  private int currentForumUnreadTopicCount () {
+    if (!initialLoadFinished && !cacheRefreshPending) {
+      return -1;
+    }
+    int count = 0;
+    for (TdApi.ForumTopic topic : topics) {
+      if (topic.unreadCount > 0) {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  private void refreshCurrentRailBadge () {
+    if (railAdapter != null) {
+      int index = railAdapter.indexOfChat(chatId());
+      if (index != -1) {
+        railAdapter.updateChat(index);
+      }
+    }
   }
 
   private void setTopicData (BetterChatView chatView, TdApi.ForumTopic topic) {
@@ -242,12 +288,12 @@ public class ForumTopicsController extends RecyclerViewController<ForumTopicsCon
 
   @Override
   public boolean needAsynchronousAnimation () {
-    return !initialLoadFinished;
+    return !initialLoadFinished && !cacheRefreshPending;
   }
 
   private void buildCells () {
     ArrayList<ListItem> items = new ArrayList<>();
-    if (!initialLoadFinished) {
+    if (!initialLoadFinished && !cacheRefreshPending) {
       items.add(new ListItem(ListItem.TYPE_PROGRESS));
     } else if (topics.isEmpty()) {
       if (canCreateTopic()) {
@@ -295,6 +341,16 @@ public class ForumTopicsController extends RecyclerViewController<ForumTopicsCon
       boolean wasInitial = !initialLoadFinished;
       initialLoadFinished = true;
       if (result.getConstructor() == TdApi.ForumTopics.CONSTRUCTOR) {
+        loadRetryCount = 0;
+        if (cacheRefreshPending) {
+          // The cached list was for instant display only - the network truth
+          // rebuilds from scratch so stale rows and stale order never stick
+          cacheRefreshPending = false;
+          for (TdApi.ForumTopic topic : topics) {
+            tdlib.listeners().unsubscribeFromForumTopicUpdates(chatId(), topic.info.forumTopicId, this);
+          }
+          topics.clear();
+        }
         TdApi.ForumTopics forumTopics = (TdApi.ForumTopics) result;
         if (forumTopics.topics.length == 0) {
           endReached = true;
@@ -314,14 +370,33 @@ public class ForumTopicsController extends RecyclerViewController<ForumTopicsCon
             endReached = true; // loop protection: the page contained only known topics
           }
         }
+        if (endReached) {
+          topicsSessionCache.put(topicsCacheKey(), new ArrayList<>(topics));
+        }
       } else {
-        endReached = true;
+        // Transient failure (network, flood limits): silently declaring the
+        // end would blank the screen and arm the healer off partial data -
+        // keep whatever is shown and retry with a growing backoff instead
+        if (wasInitial) {
+          executeScheduledAnimation();
+        }
+        if (loadRetryCount < 5) {
+          loadRetryCount++;
+          final int retryGeneration = topicsGeneration;
+          UI.post(() -> {
+            if (!isDestroyed() && retryGeneration == topicsGeneration) {
+              loadMore();
+            }
+          }, 3000L * loadRetryCount);
+        }
+        return;
       }
       buildCells();
       if (wasInitial) {
         executeScheduledAnimation();
       }
       checkStuckUnreadCounter();
+      refreshCurrentRailBadge();
       // Eager load: both the stale-badge healer and the list itself want the
       // full set without waiting for the user to scroll; the terminating empty
       // page is the server-side proof of the end that the healer relies on
@@ -405,8 +480,12 @@ public class ForumTopicsController extends RecyclerViewController<ForumTopicsCon
       if (index != -1) {
         topics.set(index, topic);
         updateTopicRow(index, topic);
+        if (endReached) {
+          topicsSessionCache.put(topicsCacheKey(), new ArrayList<>(topics));
+        }
       }
       checkStuckUnreadCounter();
+      refreshCurrentRailBadge();
     }));
   }
 
@@ -487,14 +566,13 @@ public class ForumTopicsController extends RecyclerViewController<ForumTopicsCon
         .keepStack()
         .messageTopic(topicId);
       if (topic.unreadCount > 0) {
-        // Mirror the upstream anchor priority: an unfinished saved position
-        // wins over the unread anchor, otherwise start at the first unread
-        Settings.SavedMessageId savedMessageId = Settings.instance().getScrollMessageId(tdlib.id(), chatId(), topicId);
-        boolean preferUnreadFirst = savedMessageId == null || savedMessageId.readFully || savedMessageId.id.getMessageId() == 0;
-        if (preferUnreadFirst) {
-          long fromMessageId = topic.lastReadInboxMessageId != 0 ? topic.lastReadInboxMessageId : MessageId.MIN_VALID_ID;
-          params.highlightMessage(MessagesManager.HIGHLIGHT_MODE_UNREAD, new MessageId(chatId(), fromMessageId));
-        }
+        // Official-style: open at the topic's own first unread message. The
+        // saved-position restore is poisoned for topics: readFully compares
+        // against the chat-level last message and never marks topics finished,
+        // so a stale position would strand the view mid-history and the new
+        // messages below would never be seen - and never marked read
+        long fromMessageId = topic.lastReadInboxMessageId != 0 ? topic.lastReadInboxMessageId : MessageId.MIN_VALID_ID;
+        params.highlightMessage(MessagesManager.HIGHLIGHT_MODE_UNREAD, new MessageId(chatId(), fromMessageId));
       }
       tdlib.ui().openChat(this, chatId(), params);
     } else if (item.getId() == R.id.btn_createTopic) {
@@ -660,6 +738,8 @@ public class ForumTopicsController extends RecyclerViewController<ForumTopicsCon
       nextOffsetMessageId = 0;
       nextOffsetForumTopicId = 0;
       topicsGeneration++;
+      cacheRefreshPending = false;
+      loadRetryCount = 0;
       buildCells();
       loadMore();
     });
@@ -726,8 +806,11 @@ public class ForumTopicsController extends RecyclerViewController<ForumTopicsCon
     nextOffsetForumTopicId = 0;
     topicsGeneration++;
     unstickingUnreadCounter = false;
+    cacheRefreshPending = false;
+    loadRetryCount = 0;
     tdlib.listeners().subscribeToMessageUpdates(newChatId, this);
     tdlib.listeners().subscribeToChatUpdates(newChatId, this);
+    showCachedTopicsIfAny();
     buildCells();
     ((LinearLayoutManager) getRecyclerView().getLayoutManager()).scrollToPositionWithOffset(0, 0);
     loadMore();
@@ -821,7 +904,8 @@ public class ForumTopicsController extends RecyclerViewController<ForumTopicsCon
     @Override
     public void onBindViewHolder (@NonNull RailHolder holder, int position) {
       TdApi.Chat chat = chats.get(position);
-      ((ChatRailItemView) holder.itemView).setChat(chat, chat.id == chatId());
+      boolean isCurrent = chat.id == chatId();
+      ((ChatRailItemView) holder.itemView).setChat(chat, isCurrent, isCurrent ? currentForumUnreadTopicCount() : -1);
     }
 
     @Override
@@ -865,7 +949,7 @@ public class ForumTopicsController extends RecyclerViewController<ForumTopicsCon
       return chatId;
     }
 
-    void setChat (TdApi.Chat chat, boolean isSelected) {
+    void setChat (TdApi.Chat chat, boolean isSelected, int unreadCountOverride) {
       // The counter freezes without a subscription: the chat list slice only
       // emits on order changes, and reading a chat does not reorder the list
       if (this.chatId != chat.id) {
@@ -876,12 +960,18 @@ public class ForumTopicsController extends RecyclerViewController<ForumTopicsCon
       }
       this.chatId = chat.id;
       this.isSelected = isSelected;
+      this.unreadCountOverride = unreadCountOverride;
       avatarReceiver.requestChat(tdlib, chat.id, AvatarReceiver.Options.NONE);
       updateCounter(chat, false);
     }
 
+    private int unreadCountOverride = -1;
+
     private void updateCounter (TdApi.Chat chat, boolean animated) {
-      int unreadCount = chat.unreadCount > 0 ? chat.unreadCount : chat.isMarkedAsUnread ? Tdlib.CHAT_MARKED_AS_UNREAD : 0;
+      // Override: the open forum shows the provable number of unread topics
+      // (official-style) instead of TDLib's drift-prone message aggregate
+      int unreadCount = unreadCountOverride >= 0 ? unreadCountOverride :
+        chat.unreadCount > 0 ? chat.unreadCount : chat.isMarkedAsUnread ? Tdlib.CHAT_MARKED_AS_UNREAD : 0;
       counter.setCount(unreadCount, !tdlib.chatNotificationsEnabled(chat), animated);
       invalidate();
     }
