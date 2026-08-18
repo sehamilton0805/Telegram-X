@@ -3149,6 +3149,12 @@ public class MessagesController extends ViewController<MessagesController.Argume
   }
 
   private void scrollToUnreadOrStartMessage () {
+    if (messageTopicId != null && messageThread == null && !manager.hasReturnMessage()) {
+      // Forum topic: chat-level unread anchors point at other topics' messages
+      // and would strand the jump mid-history - go straight to the newest one
+      manager.scrollToStart(false);
+      return;
+    }
     int anchorMode = MessagesManager.getAnchorHighlightMode(tdlib.id(), chat, messageThread);
     if (!manager.hasReturnMessage()) {
       if (!inPreviewMode && !isInForceTouchMode() && anchorMode == MessagesManager.HIGHLIGHT_MODE_UNREAD) {
