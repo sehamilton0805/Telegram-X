@@ -298,7 +298,7 @@ public class MessagesController extends ViewController<MessagesController.Argume
   ReplyBarView.Callback, RaiseHelper.Listener,
   TGLegacyManager.EmojiLoadListener, ChatHeaderView.Callback,
   ChatListener, NotificationSettingsListener, EmojiLayout.Listener,
-  MessageThreadListener, TdlibSingleUnreadReactionsManager.UnreadSingleReactionListener,
+  MessageThreadListener, org.thunderdog.challegram.telegram.ForumTopicInfoListener, TdlibSingleUnreadReactionsManager.UnreadSingleReactionListener,
   TdlibCache.SupergroupDataChangeListener, TdlibCache.BasicGroupDataChangeListener, TdlibCache.SecretChatDataChangeListener,
   TdlibCache.UserDataChangeListener,
   TdlibCache.UserStatusChangeListener,
@@ -3137,6 +3137,18 @@ public class MessagesController extends ViewController<MessagesController.Argume
         setUnreadCountBadge(unreadCount, animated);
         setMentionCountBadge(0);
         setReactionCountBadge(0);
+      } else if (messageTopicId != null && messageTopicId.getConstructor() == TdApi.MessageTopicForum.CONSTRUCTOR) {
+        // Forum topic: chat-level counters aggregate the whole forum - show the
+        // topic's own numbers, fetched and kept fresh by checkForumTopicCounters
+        if (forumTopic != null) {
+          setUnreadCountBadge(forumTopic.unreadCount, animated);
+          setMentionCountBadge(forumTopic.unreadMentionCount);
+          setReactionCountBadge(forumTopic.unreadReactionCount);
+        } else {
+          setUnreadCountBadge(0, animated);
+          setMentionCountBadge(0);
+          setReactionCountBadge(0);
+        }
       } else {
         setUnreadCountBadge(chat.unreadCount, true);
         setMentionCountBadge(chat.unreadMentionCount);
@@ -6451,6 +6463,38 @@ public class MessagesController extends ViewController<MessagesController.Argume
 
   public void onFirstChatScroll () {
 
+  }
+
+  // Live counters of the opened forum topic (chat-level ones aggregate the
+  // whole forum). Fetched on subscribe and refreshed on every topic update
+  private @Nullable TdApi.ForumTopic forumTopic;
+  // The exact topic actually passed to subscribeToForumTopicUpdates - messageTopicId
+  // may already point at a new chat/topic by the time unsubscribeFromUpdates(oldChatId)
+  // runs (setArguments reassigns it before the old subscription is torn down), so the
+  // unsubscribe call must key off what was really subscribed, not the live field
+  private @Nullable TdApi.MessageTopic subscribedForumTopicId;
+
+  private void checkForumTopicCounters () {
+    if (chat == null || messageTopicId == null || messageTopicId.getConstructor() != TdApi.MessageTopicForum.CONSTRUCTOR) {
+      return;
+    }
+    final long expectedChatId = chat.id;
+    final TdApi.MessageTopic expectedTopicId = messageTopicId;
+    tdlib.client().send(new TdApi.GetForumTopic(chat.id, ((TdApi.MessageTopicForum) messageTopicId).forumTopicId), result -> runOnUiThreadOptional(() -> {
+      if (result.getConstructor() == TdApi.ForumTopic.CONSTRUCTOR && chat != null && chat.id == expectedChatId && messageTopicId == expectedTopicId) {
+        forumTopic = (TdApi.ForumTopic) result;
+        updateCounters(true);
+      }
+    }));
+  }
+
+  @Override
+  public void onForumTopicUpdated (long chatId, long messageThreadId, boolean isPinned, long lastReadInboxMessageId, long lastReadOutboxMessageId, TdApi.ChatNotificationSettings notificationSettings) {
+    tdlib.ui().post(() -> {
+      if (!isDestroyed() && chat != null && chat.id == chatId) {
+        checkForumTopicCounters();
+      }
+    });
   }
 
   private void setUnreadCountBadge (int unreadCount, boolean isUpdate) {
@@ -10896,6 +10940,11 @@ public class MessagesController extends ViewController<MessagesController.Argume
       tdlib.listeners().subscribeToChatUpdates(getHeaderChatId(), this);
     }
     tdlib.listeners().subscribeToSettingsUpdates(this);
+    if (messageTopicId != null && messageTopicId.getConstructor() == TdApi.MessageTopicForum.CONSTRUCTOR) {
+      tdlib.listeners().subscribeToForumTopicUpdates(chatId, ((TdApi.MessageTopicForum) messageTopicId).forumTopicId, this);
+      subscribedForumTopicId = messageTopicId;
+      checkForumTopicCounters();
+    }
     if (messageThread != null) {
       messageThread.addListener(this);
     }
@@ -10930,6 +10979,11 @@ public class MessagesController extends ViewController<MessagesController.Argume
       tdlib.listeners().unsubscribeFromChatUpdates(getHeaderChatId(), this);
     }
     tdlib.listeners().unsubscribeFromSettingsUpdates(this);
+    if (subscribedForumTopicId != null) {
+      tdlib.listeners().unsubscribeFromForumTopicUpdates(chatId, ((TdApi.MessageTopicForum) subscribedForumTopicId).forumTopicId, this);
+      subscribedForumTopicId = null;
+      forumTopic = null;
+    }
     // tdlib.status().unsubscribeFromChatUpdates(chatId, this);
     if (messageThread != null) {
       messageThread.removeListener(this);
