@@ -28,6 +28,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import org.drinkless.tdlib.TdApi;
 import org.thunderdog.challegram.R;
 import org.thunderdog.challegram.core.Lang;
+import org.thunderdog.challegram.component.chat.MessagesManager;
 import org.thunderdog.challegram.data.AvatarPlaceholder;
 import org.thunderdog.challegram.data.ContentPreview;
 import org.thunderdog.challegram.data.TD;
@@ -43,6 +44,7 @@ import org.thunderdog.challegram.telegram.TdlibChatListSlice;
 import org.thunderdog.challegram.telegram.TdlibUi;
 import org.thunderdog.challegram.theme.ColorId;
 import org.thunderdog.challegram.theme.Theme;
+import org.thunderdog.challegram.unsorted.Settings;
 import org.thunderdog.challegram.tool.Paints;
 import org.thunderdog.challegram.tool.Screen;
 import org.thunderdog.challegram.tool.Views;
@@ -63,6 +65,7 @@ import me.vkryl.android.widget.FrameLayoutFix;
 import me.vkryl.core.collection.IntList;
 import me.vkryl.core.lambda.Destroyable;
 import tgx.td.ChatPosition;
+import tgx.td.MessageId;
 
 public class ForumTopicsController extends RecyclerViewController<ForumTopicsController.Args> implements View.OnClickListener, View.OnLongClickListener, MessageListener, ForumTopicInfoListener, ChatListListener, ChatListener {
   public static class Args {
@@ -468,9 +471,21 @@ public class ForumTopicsController extends RecyclerViewController<ForumTopicsCon
     }
     if (item.getId() == R.id.btn_forumTopic) {
       TdApi.ForumTopic topic = (TdApi.ForumTopic) item.getData();
-      tdlib.ui().openChat(this, chatId(), new TdlibUi.ChatOpenParameters()
+      TdApi.MessageTopicForum topicId = new TdApi.MessageTopicForum(topic.info.forumTopicId);
+      TdlibUi.ChatOpenParameters params = new TdlibUi.ChatOpenParameters()
         .keepStack()
-        .messageTopic(new TdApi.MessageTopicForum(topic.info.forumTopicId)));
+        .messageTopic(topicId);
+      if (topic.unreadCount > 0) {
+        // Mirror the upstream anchor priority: an unfinished saved position
+        // wins over the unread anchor, otherwise start at the first unread
+        Settings.SavedMessageId savedMessageId = Settings.instance().getScrollMessageId(tdlib.id(), chatId(), topicId);
+        boolean preferUnreadFirst = savedMessageId == null || savedMessageId.readFully || savedMessageId.id.getMessageId() == 0;
+        if (preferUnreadFirst) {
+          long fromMessageId = topic.lastReadInboxMessageId != 0 ? topic.lastReadInboxMessageId : MessageId.MIN_VALID_ID;
+          params.highlightMessage(MessagesManager.HIGHLIGHT_MODE_UNREAD, new MessageId(chatId(), fromMessageId));
+        }
+      }
+      tdlib.ui().openChat(this, chatId(), params);
     } else if (item.getId() == R.id.btn_createTopic) {
       showCreateTopic();
     }
@@ -820,7 +835,7 @@ public class ForumTopicsController extends RecyclerViewController<ForumTopicsCon
     }
   }
 
-  private static class ChatRailItemView extends View implements AttachDelegate, Destroyable {
+  private static class ChatRailItemView extends View implements AttachDelegate, Destroyable, ChatListener {
     private final Tdlib tdlib;
     private final AvatarReceiver avatarReceiver;
     private final Counter counter;
@@ -840,12 +855,45 @@ public class ForumTopicsController extends RecyclerViewController<ForumTopicsCon
     }
 
     void setChat (TdApi.Chat chat, boolean isSelected) {
+      // The counter freezes without a subscription: the chat list slice only
+      // emits on order changes, and reading a chat does not reorder the list
+      if (this.chatId != chat.id) {
+        if (this.chatId != 0) {
+          tdlib.listeners().unsubscribeFromChatUpdates(this.chatId, this);
+        }
+        tdlib.listeners().subscribeToChatUpdates(chat.id, this);
+      }
       this.chatId = chat.id;
       this.isSelected = isSelected;
       avatarReceiver.requestChat(tdlib, chat.id, AvatarReceiver.Options.NONE);
+      updateCounter(chat, false);
+    }
+
+    private void updateCounter (TdApi.Chat chat, boolean animated) {
       int unreadCount = chat.unreadCount > 0 ? chat.unreadCount : chat.isMarkedAsUnread ? Tdlib.CHAT_MARKED_AS_UNREAD : 0;
-      counter.setCount(unreadCount, !tdlib.chatNotificationsEnabled(chat), false);
+      counter.setCount(unreadCount, !tdlib.chatNotificationsEnabled(chat), animated);
       invalidate();
+    }
+
+    private void updateCounterForChatId (long chatId) {
+      tdlib.ui().post(() -> {
+        if (this.chatId == chatId) {
+          TdApi.Chat chat = tdlib.chat(chatId);
+          if (chat != null) {
+            updateCounter(chat, true);
+          }
+        }
+      });
+    }
+
+    @Override
+    public void onChatReadInbox (long chatId, long lastReadInboxMessageId, int unreadCount, boolean availabilityChanged) {
+      updateCounterForChatId(chatId);
+    }
+
+    @Override
+    public void onChatMarkedAsUnread (long chatId, boolean isMarkedAsUnread) {
+      updateCounterForChatId(chatId);
     }
 
     @Override
@@ -889,6 +937,10 @@ public class ForumTopicsController extends RecyclerViewController<ForumTopicsCon
 
     @Override
     public void performDestroy () {
+      if (chatId != 0) {
+        tdlib.listeners().unsubscribeFromChatUpdates(chatId, this);
+        chatId = 0;
+      }
       avatarReceiver.destroy();
     }
   }

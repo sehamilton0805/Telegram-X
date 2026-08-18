@@ -2163,9 +2163,16 @@ public class TdlibUi extends Handler {
       highlightMode = params.highlightMode;
       highlightMessageId = params.highlightMessageId;
     } else if (messageTopicId != null) {
-      // Chat-level unread anchors point at messages of other topics
-      highlightMode = MessagesManager.HIGHLIGHT_MODE_NONE;
-      highlightMessageId = null;
+      // Chat-level unread anchors point at messages of other topics - restore
+      // the per-topic saved position instead (written under the chat+topic key)
+      Settings.SavedMessageId savedMessageId = Settings.instance().getScrollMessageId(tdlib.id(), chat.id, messageTopicId);
+      if (savedMessageId != null && savedMessageId.id.getMessageId() != 0) {
+        highlightMode = MessagesManager.HIGHLIGHT_MODE_POSITION_RESTORE;
+        highlightMessageId = savedMessageId.id;
+      } else {
+        highlightMode = MessagesManager.HIGHLIGHT_MODE_NONE;
+        highlightMessageId = null;
+      }
     } else {
       highlightMode = MessagesManager.getAnchorHighlightMode(tdlib.id(), chat, messageThread);
       highlightMessageId = MessagesManager.getAnchorMessageId(tdlib.id(), chat, messageThread, highlightMode);
