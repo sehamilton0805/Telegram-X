@@ -286,7 +286,7 @@ public class ForumTopicsController extends RecyclerViewController<ForumTopicsCon
     }
     isLoading = true;
     final int generation = topicsGeneration;
-    int limit = initialLoadFinished ? 40 : Screen.calculateLoadingItems(Screen.dp(72f), 20);
+    int limit = initialLoadFinished ? 100 : Screen.calculateLoadingItems(Screen.dp(72f), 20);
     tdlib.client().send(new TdApi.GetForumTopics(chatId(), null, nextOffsetDate, nextOffsetMessageId, nextOffsetForumTopicId, limit), result -> runOnUiThreadOptional(() -> {
       if (generation != topicsGeneration) {
         return; // Late response for a previously displayed forum
@@ -302,11 +302,16 @@ public class ForumTopicsController extends RecyclerViewController<ForumTopicsCon
           nextOffsetDate = forumTopics.nextOffsetDate;
           nextOffsetMessageId = forumTopics.nextOffsetMessageId;
           nextOffsetForumTopicId = forumTopics.nextOffsetForumTopicId;
+          boolean addedAny = false;
           for (TdApi.ForumTopic topic : forumTopics.topics) {
             if (indexOfTopic(topic.info.forumTopicId) == -1) {
               topics.add(topic);
               tdlib.listeners().subscribeToForumTopicUpdates(chatId(), topic.info.forumTopicId, this);
+              addedAny = true;
             }
+          }
+          if (!addedAny) {
+            endReached = true; // loop protection: the page contained only known topics
           }
         }
       } else {
@@ -317,6 +322,12 @@ public class ForumTopicsController extends RecyclerViewController<ForumTopicsCon
         executeScheduledAnimation();
       }
       checkStuckUnreadCounter();
+      // Eager load: both the stale-badge healer and the list itself want the
+      // full set without waiting for the user to scroll; the terminating empty
+      // page is the server-side proof of the end that the healer relies on
+      if (!endReached && topics.size() < 500) {
+        loadMore();
+      }
     }));
   }
 
