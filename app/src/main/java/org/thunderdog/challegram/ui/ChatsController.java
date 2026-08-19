@@ -1253,7 +1253,10 @@ public class ChatsController extends TelegramViewController<ChatsController.Argu
   }
 
   private boolean shouldShowPin (int mode) {
-    return mode != ACTION_MODE_NONE && mode != ACTION_MODE_MIXED;
+    // Mixed selection acts as "pin the rest": the handler already skips the
+    // pinned ones, hiding the button here made bulk pin unreachable whenever
+    // the selection contained at least one already-pinned chat
+    return mode != ACTION_MODE_NONE;
   }
 
   private int canDeleteSelectedChats () {
@@ -1415,7 +1418,9 @@ public class ChatsController extends TelegramViewController<ChatsController.Argu
       }
       if (cloudPinCount > 0 || secretPinCount > 0) {
         boolean isUnpin = mode == ACTION_MODE_ALL_ENABLED;
-        int maxPinnedCount = chatList().getConstructor() == TdApi.ChatListMain.CONSTRUCTOR ? tdlib.pinnedChatsMaxCount() : tdlib.pinnedArchivedChatsMaxCount();
+        int maxPinnedCount = chatList().getConstructor() == TdApi.ChatListMain.CONSTRUCTOR ? tdlib.pinnedChatsMaxCount() :
+          chatList().getConstructor() == TdApi.ChatListFolder.CONSTRUCTOR ? tdlib.chatFolderChosenChatCountMax() :
+          tdlib.pinnedArchivedChatsMaxCount();
         int pinnedCloudCount = adapter.getPinnedChatCount(false), pinnedSecretCount = adapter.getPinnedChatCount(true);
         if (!isUnpin && (pinnedCloudCount + cloudPinCount > maxPinnedCount || pinnedSecretCount + secretPinCount > maxPinnedCount)) {
           CharSequence message = chatList().getConstructor() == TdApi.ChatListMain.CONSTRUCTOR ? Lang.pluralBold(R.string.PinTooMuchWarn, maxPinnedCount) : Lang.plural(R.string.ErrorPinnedChatsLimit, maxPinnedCount);
