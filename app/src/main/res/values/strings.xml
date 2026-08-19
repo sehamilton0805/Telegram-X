@@ -5809,6 +5809,7 @@
   <string name="SlowFileAccess">Slow file access. Message will be sent after reading the files</string>
   <string name="EditMediaRestricted">You cannot change the media type</string>
 
+  <string name="BigButtonIcons">Крупные иконки кнопок</string>
   <string name="KeepAliveService">Постоянное соединение</string>
   <string name="KeepAliveServiceDesc">Держит фоновое соединение с Telegram: уведомления приходят мгновенно, даже когда пуши задерживаются или аккаунт онлайн на другом устройстве. Показывает тихое системное уведомление и немного расходует батарею.</string>
   <string name="KeepAliveNotification">Постоянное соединение активно</string>

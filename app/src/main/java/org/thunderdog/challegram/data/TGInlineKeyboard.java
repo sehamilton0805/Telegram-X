@@ -55,6 +55,7 @@ import org.thunderdog.challegram.tool.UI;
 import org.thunderdog.challegram.ui.ListItem;
 import org.thunderdog.challegram.ui.MessagesController;
 import org.thunderdog.challegram.ui.WebAppController;
+import org.thunderdog.challegram.unsorted.Settings;
 import org.thunderdog.challegram.util.CustomTypefaceSpan;
 import org.thunderdog.challegram.util.DrawableProvider;
 import org.thunderdog.challegram.util.EmojiStatusHelper;
@@ -485,9 +486,10 @@ public class TGInlineKeyboard {
       String text = uppercase(cleanButtonText(button.text));
       this.needFakeBold = Text.needFakeBold(text);
       this.blankLabel = isBlankLabel(text);
+      this.compactIcons = !Settings.instance().useBigButtonIcons();
       this.iconCustomEmojiId = button.iconCustomEmojiId;
       if (button.iconCustomEmojiId != 0) {
-        this.iconText = buildIconText(button.iconCustomEmojiId, ICON_TEXT_SIZE_DP);
+        this.iconText = buildIconText(button.iconCustomEmojiId, preferredIconSizeDp());
       }
       this.styleColorId = resolveStyleColorId(button.style);
       this.type = button.type;
@@ -513,6 +515,10 @@ public class TGInlineKeyboard {
         return 0;
       }
       int spacing = blankLabel ? 0 : Screen.dp(ICON_SPACING_DP);
+      if (compactIcons) {
+        // In-flow icon: no edge padding, no corner inset - it sits by the label
+        return iconText.getWidth() + spacing;
+      }
       int cornerInset = Lang.rtl() && hasCornerIndicator() ? Screen.dp(20f) : 0;
       return Screen.dp(ICON_EDGE_PADDING_DP) + iconText.getWidth() + spacing + cornerInset;
     }
@@ -681,6 +687,9 @@ public class TGInlineKeyboard {
       String text = uppercase(cleanButtonText(button.text));
       final boolean reset = !wrapper.getText().equals(text);
       this.blankLabel = isBlankLabel(text);
+      boolean newCompactIcons = !Settings.instance().useBigButtonIcons();
+      final boolean iconModeChanged = this.compactIcons != newCompactIcons;
+      this.compactIcons = newCompactIcons;
       if (this.iconCustomEmojiId != button.iconCustomEmojiId) {
         this.iconCustomEmojiId = button.iconCustomEmojiId;
         if (iconText != null) {
@@ -688,12 +697,12 @@ public class TGInlineKeyboard {
           iconText = null;
         }
         if (button.iconCustomEmojiId != 0) {
-          this.iconText = buildIconText(button.iconCustomEmojiId, ICON_TEXT_SIZE_DP);
+          this.iconText = buildIconText(button.iconCustomEmojiId, preferredIconSizeDp());
         }
-      } else if ((reset || maxWidth != lastFitMaxWidth) && iconText != null && iconSizeDp != ICON_TEXT_SIZE_DP) {
-        // label or geometry changed - the big icon may fit now, try it again
+      } else if ((reset || maxWidth != lastFitMaxWidth || iconModeChanged) && iconText != null && iconSizeDp != preferredIconSizeDp()) {
+        // label, geometry or icon mode changed - the preferred size may fit now
         iconText.performDestroy();
-        this.iconText = buildIconText(iconCustomEmojiId, ICON_TEXT_SIZE_DP);
+        this.iconText = buildIconText(iconCustomEmojiId, preferredIconSizeDp());
       }
       this.needFakeBold = Text.needFakeBold(text);
       final float oldTextSizeDp = this.textSizeDp;
@@ -743,6 +752,13 @@ public class TGInlineKeyboard {
     private static final float ICON_EDGE_PADDING_DP = 4f;
     private float iconSizeDp = ICON_TEXT_SIZE_DP;
     private boolean blankLabel;
+    // Optional classic look: small in-flow icon centered together with the
+    // label, like the official clients, instead of the big edge-pinned one
+    private boolean compactIcons;
+
+    private float preferredIconSizeDp () {
+      return compactIcons ? BUTTON_TEXT_SIZE_DP : ICON_TEXT_SIZE_DP;
+    }
 
     // Bots must send non-empty button text, so icon-only buttons carry an
     // invisible placeholder (braille blank, fillers, zero-width chars)
@@ -865,6 +881,17 @@ public class TGInlineKeyboard {
         int iconX;
         if (contentWidth <= 0 || blankLabel) {
           iconX = cx + (buttonWidth - iconWidth) / 2;
+        } else if (compactIcons) {
+          // Classic look: icon and label centered together as one group
+          int spacing = Screen.dp(ICON_SPACING_DP);
+          int groupLeft = cx + (buttonWidth - (iconWidth + spacing + contentWidth)) / 2;
+          if (Lang.rtl()) {
+            iconX = groupLeft + contentWidth + spacing;
+            textX = groupLeft - (wrapper.getWidth() - contentWidth) / 2;
+          } else {
+            iconX = groupLeft;
+            textX = groupLeft + iconWidth + spacing - (wrapper.getWidth() - contentWidth) / 2;
+          }
         } else {
           int zoneWidth = Math.max(0, buttonWidth - getButtonPadding() * 2 - getIconFootprint());
           // The label hugs the icon instead of centering in the remaining zone

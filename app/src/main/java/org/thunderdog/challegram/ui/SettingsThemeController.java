@@ -159,6 +159,8 @@ public class SettingsThemeController extends RecyclerViewController<SettingsThem
           v.getToggler().setRadioEnabled(Settings.instance().needReduceMotion(), isUpdate);
         } else if (itemId == R.id.btn_autoplayGIFs) {
           v.getToggler().setRadioEnabled(Settings.instance().needAutoplayGIFs(), isUpdate);
+        } else if (itemId == R.id.btn_bigButtonIcons) {
+          v.getToggler().setRadioEnabled(Settings.instance().useBigButtonIcons(), isUpdate);
         } else if (itemId == R.id.btn_saveToGallery) {
           v.getToggler().setRadioEnabled(Settings.instance().needSaveEditedMediaToGallery(), isUpdate);
         } else if (itemId == R.id.btn_mosaic) {
@@ -504,6 +506,8 @@ public class SettingsThemeController extends RecyclerViewController<SettingsThem
       });
     } else if (mode == MODE_INTERFACE_OPTIONS) {
       items.add(new ListItem(ListItem.TYPE_RADIO_SETTING, R.id.btn_autoplayGIFs, 0, R.string.AutoplayGifs));
+      items.add(new ListItem(ListItem.TYPE_SEPARATOR_FULL));
+      items.add(new ListItem(ListItem.TYPE_RADIO_SETTING, R.id.btn_bigButtonIcons, 0, R.string.BigButtonIcons));
       if (Config.IN_APP_BROWSER_AVAILABLE) {
         items.add(new ListItem(ListItem.TYPE_SEPARATOR_FULL));
         items.add(new ListItem(ListItem.TYPE_RADIO_SETTING, R.id.btn_useInAppBrowser, 0, R.string.UseInAppBrowser, Settings.instance().useInAppBrowser()));
@@ -962,6 +966,8 @@ public class SettingsThemeController extends RecyclerViewController<SettingsThem
       showEarpieceOptions(true);
     } else if (viewId == R.id.btn_autoplayGIFs) {
       Settings.instance().setAutoplayGIFs(adapter.toggleView(v));
+    } else if (viewId == R.id.btn_bigButtonIcons) {
+      Settings.instance().setUseBigButtonIcons(adapter.toggleView(v));
     } else if (viewId == R.id.btn_cameraSetting) {
       ListItem item = ((ListItem) v.getTag());
       Settings.instance().setNewSetting(item.getLongId(), item.getBoolValue() != adapter.toggleView(v));

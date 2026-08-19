@@ -360,6 +360,7 @@ public class Settings {
   private static final String KEY_BIG_REACTIONS_IN_CHANNELS = "big_reactions_in_channels";
   private static final String KEY_BIG_REACTIONS_IN_CHATS = "big_reactions_in_chats";
   private static final String KEY_KEEP_ALIVE_SERVICE = "keep_alive_service";
+  private static final String KEY_BIG_BUTTON_ICONS = "big_button_icons";
 
   private static final String KEY_WALLPAPER_PREFIX = "wallpaper";
   private static final String KEY_WALLPAPER_CUSTOM = "_custom";
@@ -6854,6 +6855,14 @@ public class Settings {
       }
     }
     return quickReactions;
+  }
+
+  public boolean useBigButtonIcons () {
+    return getBoolean(KEY_BIG_BUTTON_ICONS, true);
+  }
+
+  public void setUseBigButtonIcons (boolean enabled) {
+    pmc.putBoolean(KEY_BIG_BUTTON_ICONS, enabled);
   }
 
   public boolean needKeepAliveService () {
