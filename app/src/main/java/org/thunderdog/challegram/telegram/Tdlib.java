@@ -8928,6 +8928,11 @@ public class Tdlib implements TdlibProvider, Settings.SettingsChangeListener, Da
         }
       }
     } else {
+      // Download stopped without completing (transport died mid-transfer):
+      // without a re-kick the loader record stays pending forever and every
+      // later request dedupes against it - the photo remains a placeholder
+      // until the chat is reopened
+      ImageLoader.instance().onDownloadStopped(this, update.file);
       files().onFileUpdated(update);
     }
   }

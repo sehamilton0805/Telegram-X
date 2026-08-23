@@ -183,6 +183,45 @@ public class ImageLoader {
     }
   }
 
+  // A watched download stopped mid-transfer without completing (transport
+  // died while the main connection may have stayed up - no reconnect event to
+  // hook). Re-kick it after a short delay; bounded by the watchers lifecycle:
+  // once the user leaves the screen the record is gone and retries stop
+  public void onDownloadStopped (Tdlib tdlib, TdApi.File file) {
+    if (file == null || file.id <= 0 || file.local == null || file.local.isDownloadingCompleted || !file.local.canBeDownloaded) {
+      return;
+    }
+    // The watched-check itself needs the watchers lock; this method runs
+    // straight on the TDLib update-dispatch thread for every stopped file in
+    // the account (uploads, unrelated documents, etc.), so touching that lock
+    // here would contend with the image thread and stall TDLib's own update
+    // pipeline. Defer the check to the delayed retry on the image thread
+    // instead - scheduling a message that turns out to be a no-op costs nothing
+    thread.retryStoppedDownload(tdlib, file.id, 1500L);
+  }
+
+  private boolean hasWatchedTdlibFile (Tdlib tdlib, int fileId) {
+    synchronized (watchers) {
+      for (ImageWatchers record : watchers.values()) {
+        ImageFile watchedFile = record.getFile();
+        if (watchedFile != null && watchedFile.tdlib() == tdlib && watchedFile.getId() == fileId) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  void retryStoppedDownload (Tdlib tdlib, int fileId) {
+    if (Config.DEBUG_DISABLE_DOWNLOAD || !hasWatchedTdlibFile(tdlib, fileId)) {
+      return; // watchers left in the meantime - nobody needs this file anymore
+    }
+    if (Log.isEnabled(Log.TAG_IMAGE_LOADER)) {
+      Log.v(Log.TAG_IMAGE_LOADER, "#%d: re-kicking stopped download", fileId);
+    }
+    tdlib.send(new TdApi.DownloadFile(fileId, TdlibFilesManager.PRIORITY_IMAGE, 0, 0, false), tdlib.imageLoadHandler());
+  }
+
   void downloadFilePersistent (final ImageFileRemote persistentFile, final TdApi.File file) {
     if (Thread.currentThread() != thread) {
       thread.downloadFilePersistent(persistentFile, file);

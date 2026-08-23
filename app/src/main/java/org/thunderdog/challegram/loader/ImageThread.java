@@ -19,6 +19,7 @@ import android.os.Message;
 
 import org.drinkless.tdlib.TdApi;
 import org.thunderdog.challegram.core.BaseThread;
+import org.thunderdog.challegram.telegram.Tdlib;
 
 public class ImageThread extends BaseThread {
   private static final int REQUEST = 0;
@@ -28,6 +29,7 @@ public class ImageThread extends BaseThread {
   private static final int CLEAR = 4;
   private static final int DOWNLOAD_FILE_PERSISTENT = 5;
   private static final int RETRY_PENDING_DOWNLOADS = 6;
+  private static final int RETRY_STOPPED_DOWNLOAD = 7;
 
   public ImageThread () {
     super("ImageThread");
@@ -59,6 +61,10 @@ public class ImageThread extends BaseThread {
 
   public void retryPendingDownloads () {
     sendMessage(Message.obtain(getHandler(), RETRY_PENDING_DOWNLOADS), 0);
+  }
+
+  public void retryStoppedDownload (Tdlib tdlib, int fileId, long delayMs) {
+    sendMessage(Message.obtain(getHandler(), RETRY_STOPPED_DOWNLOAD, fileId, 0, tdlib), delayMs);
   }
 
   @Override
@@ -113,6 +119,10 @@ public class ImageThread extends BaseThread {
       }
       case RETRY_PENDING_DOWNLOADS: {
         ImageLoader.instance().retryPendingDownloads();
+        break;
+      }
+      case RETRY_STOPPED_DOWNLOAD: {
+        ImageLoader.instance().retryStoppedDownload((Tdlib) msg.obj, msg.arg1);
         break;
       }
     }
