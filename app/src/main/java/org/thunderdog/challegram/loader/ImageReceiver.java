@@ -702,7 +702,13 @@ public class ImageReceiver implements Watcher, ValueAnimator.AnimatorUpdateListe
 
     boolean sameFiles = sameFiles(this.file, file);
 
-    if (!sameFiles || (this.bitmap != null && this.bitmap.isRecycled())) {
+    // An empty receiver re-requesting the same file must actually reload it:
+    // when a cycled file comes back to a receiver whose previous bitmap was
+    // released, the same-file branches below would swap the reference (or
+    // no-op) without ever loading - permanently blank until the chat reopens.
+    // loadPending keeps the legitimate load-in-flight state deduped as before
+    if (!sameFiles || (this.bitmap != null && this.bitmap.isRecycled()) || (file != null && !U.isValidBitmap(this.bitmap) && !loadPending)) {
+      loadPending = false;
       if (this.file != null) {
         ImageLoader.instance().removeWatcher(reference);
       }
@@ -721,6 +727,7 @@ public class ImageReceiver implements Watcher, ValueAnimator.AnimatorUpdateListe
           }
 
           if (!file.isCacheOnly()) {
+            loadPending = true;
             ImageLoader.instance().requestFile(file, reference);
           }
         } else {
@@ -1003,6 +1010,7 @@ public class ImageReceiver implements Watcher, ValueAnimator.AnimatorUpdateListe
   public void imageLoaded (ImageFile file, boolean successful, Bitmap bitmap) {
     ImageFile currentFile = this.file;
     if (compareToFile(currentFile, file)) {
+      loadPending = false;
       if (successful) {
         handler.display(this, currentFile, bitmap);
       } else {
@@ -1170,6 +1178,10 @@ public class ImageReceiver implements Watcher, ValueAnimator.AnimatorUpdateListe
   }
 
   private boolean recycledReloadScheduled;
+  // Written on the UI thread (requestFile), cleared from ImageLoader's
+  // dedicated ImageThread (imageLoaded) - needs cross-thread visibility, same
+  // reasoning as BaseThread's own volatile handler field
+  private volatile boolean loadPending;
 
   @Override
   public void draw (Canvas c) {
