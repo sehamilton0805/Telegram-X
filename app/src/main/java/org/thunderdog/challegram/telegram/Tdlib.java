@@ -10823,6 +10823,9 @@ public class Tdlib implements TdlibProvider, Settings.SettingsChangeListener, Da
   private void onConnected () {
     setHasUnprocessedPushes(false);
     connectionListeners.notifyConditionChanged();
+    // Downloads killed by the outage stay stuck behind stale loader records -
+    // re-kick them now that the connection is back
+    ImageLoader.instance().retryPendingDownloads();
   }
 
   private void onNotificationsInitialized () {

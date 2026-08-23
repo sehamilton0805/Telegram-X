@@ -5570,6 +5570,13 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
       int contentWidth = getContentWidth();
       updateMessageContent(message, newContent, isBottomMessage);
       message.content = newContent;
+      // Auto-download normally runs only when a view binds - an in-place media
+      // edit (bot editMessageMedia) that keeps the height never rebinds, so the
+      // new file would sit behind a manual download button forever
+      TdApi.Chat chat = tdlib.chat(msg.chatId);
+      if (chat != null) {
+        autoDownloadContent(chat.type);
+      }
       if (width != getWidth() || contentWidth != getContentWidth()) {
         buildMarkup();
       }

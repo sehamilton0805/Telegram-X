@@ -151,6 +151,38 @@ public class ImageLoader {
     }
   }
 
+  // A download killed mid-transfer (connection drop) leaves its record pending
+  // forever: the stopped-download branch of Tdlib.updateFile never reaches this
+  // loader, and every later request dedupes against the stale record. Re-kick
+  // the downloads of all watched, not-yet-completed tdlib files; DownloadFile
+  // is idempotent for active or completed ones
+  public void retryPendingDownloads () {
+    if (Thread.currentThread() != thread) {
+      thread.retryPendingDownloads();
+      return;
+    }
+    synchronized (watchers) {
+      for (ImageWatchers record : watchers.values()) {
+        ImageFile file = record.getFile();
+        if (file == null) {
+          continue;
+        }
+        Tdlib tdlib = file.tdlib();
+        int fileId = file.getId();
+        TdApi.File rawFile = file.getFile();
+        if (tdlib == null || fileId <= 0 || rawFile == null || rawFile.local == null || rawFile.local.isDownloadingCompleted) {
+          continue;
+        }
+        if (!Config.DEBUG_DISABLE_DOWNLOAD) {
+          if (Log.isEnabled(Log.TAG_IMAGE_LOADER)) {
+            Log.v(Log.TAG_IMAGE_LOADER, "#%s: retrying pending download", file.toString());
+          }
+          tdlib.send(new TdApi.DownloadFile(fileId, TdlibFilesManager.PRIORITY_IMAGE, 0, 0, false), tdlib.imageLoadHandler());
+        }
+      }
+    }
+  }
+
   void downloadFilePersistent (final ImageFileRemote persistentFile, final TdApi.File file) {
     if (Thread.currentThread() != thread) {
       thread.downloadFilePersistent(persistentFile, file);

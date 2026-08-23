@@ -27,6 +27,7 @@ public class ImageThread extends BaseThread {
   private static final int ACTOR_RESULT = 3;
   private static final int CLEAR = 4;
   private static final int DOWNLOAD_FILE_PERSISTENT = 5;
+  private static final int RETRY_PENDING_DOWNLOADS = 6;
 
   public ImageThread () {
     super("ImageThread");
@@ -54,6 +55,10 @@ public class ImageThread extends BaseThread {
 
   public void clear (int accountId, boolean withMemcache) {
     sendMessage(Message.obtain(getHandler(), CLEAR, accountId, withMemcache ? 1 : 0), 0);
+  }
+
+  public void retryPendingDownloads () {
+    sendMessage(Message.obtain(getHandler(), RETRY_PENDING_DOWNLOADS), 0);
   }
 
   @Override
@@ -104,6 +109,10 @@ public class ImageThread extends BaseThread {
       }
       case CLEAR: {
         ImageLoader.instance().clear(msg.arg1, msg.arg2 == 1);
+        break;
+      }
+      case RETRY_PENDING_DOWNLOADS: {
+        ImageLoader.instance().retryPendingDownloads();
         break;
       }
     }
