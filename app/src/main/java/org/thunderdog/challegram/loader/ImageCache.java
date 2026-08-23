@@ -109,7 +109,7 @@ public class ImageCache {
   }
 
   public void addReference (ImageFile file, Bitmap bitmap) {
-    if (file != null && bitmap != null) {
+    if (file != null && bitmap != null && !bitmap.isRecycled()) {
       synchronized (counters) {
         final String key = file.toString();
         AtomicInteger count = counters.get(key);
@@ -182,7 +182,11 @@ public class ImageCache {
 
   public Bitmap getBitmap (ImageFile file) {
     final String key = file.toString();
-    final Bitmap cached = memcache.get(key);
+    Bitmap cached = memcache.get(key);
+    if (cached != null && cached.isRecycled()) {
+      // Never hand out a corpse: a recycled entry is a cache miss
+      cached = null;
+    }
     if (cached != null) {
       Integer rotation = rotations.get(key);
       if (rotation != null) {

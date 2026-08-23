@@ -1160,9 +1160,30 @@ public class ImageReceiver implements Watcher, ValueAnimator.AnimatorUpdateListe
     }
   }
 
+  private boolean recycledReloadScheduled;
+
   @Override
   public void draw (Canvas c) {
     if (!U.isValidBitmap(bitmap)) {
+      // Self-heal: the cache recycles a bitmap the moment its references drop
+      // to zero, and rebind churn can do that while this receiver still holds
+      // it - with the same-file request path deduped to a no-op, nothing would
+      // ever reload it and the image stays a blank placeholder forever
+      if (bitmap != null && file != null && !isDetached && !recycledReloadScheduled) {
+        recycledReloadScheduled = true;
+        final ImageFile fileToReload = file;
+        UI.post(() -> {
+          if (this.file == fileToReload && !U.isValidBitmap(this.bitmap) && !isDetached) {
+            // No need to null out this.file first: requestFile's same-file
+            // gate already forces the full reload branch whenever the held
+            // bitmap is recycled, and going through it normally (rather than
+            // faking a file switch) lets it release the corpse's reference
+            // instead of leaking it forever as an uncounted phantom hold
+            requestFile(fileToReload);
+          }
+          recycledReloadScheduled = false;
+        });
+      }
       return;
     }
 
