@@ -684,6 +684,9 @@ public class ImageReceiver implements Watcher, ValueAnimator.AnimatorUpdateListe
 
   public void requestFile (ImageFile file) {
     if (isDetached) {
+      if (Log.isEnabled(Log.TAG_IMAGE_LOADER)) {
+        Log.i(Log.TAG_IMAGE_LOADER, "RCVREQ %d stash key=%s", System.identityHashCode(this), file != null ? file.toString() : "-");
+      }
       cachedFile = file;
       return;
     }
@@ -708,6 +711,10 @@ public class ImageReceiver implements Watcher, ValueAnimator.AnimatorUpdateListe
     // no-op) without ever loading - permanently blank until the chat reopens.
     // loadPending keeps the legitimate load-in-flight state deduped as before
     if (!sameFiles || (this.bitmap != null && this.bitmap.isRecycled()) || (file != null && !U.isValidBitmap(this.bitmap) && !loadPending)) {
+      if (Log.isEnabled(Log.TAG_IMAGE_LOADER)) {
+        String why = !sameFiles ? "diff" : (this.bitmap != null && this.bitmap.isRecycled()) ? "rec" : "empty";
+        Log.i(Log.TAG_IMAGE_LOADER, "RCVREQ %d full(%s) old=%s new=%s bmp=%s lp=%b", System.identityHashCode(this), why, this.file != null ? this.file.toString() : "-", file != null ? file.toString() : "-", bmpSig(this.bitmap), loadPending);
+      }
       loadPending = false;
       if (this.file != null) {
         ImageLoader.instance().removeWatcher(reference);
@@ -729,6 +736,11 @@ public class ImageReceiver implements Watcher, ValueAnimator.AnimatorUpdateListe
           if (!file.isCacheOnly()) {
             loadPending = true;
             ImageLoader.instance().requestFile(file, reference);
+            if (Log.isEnabled(Log.TAG_IMAGE_LOADER)) {
+              Log.i(Log.TAG_IMAGE_LOADER, "RCVREQ %d load %s", System.identityHashCode(this), file.toString());
+            }
+          } else if (Log.isEnabled(Log.TAG_IMAGE_LOADER)) {
+            Log.i(Log.TAG_IMAGE_LOADER, "RCVREQ %d cacheonly-wait %s", System.identityHashCode(this), file.toString());
           }
         } else {
           boolean changed = alpha != 1f;
@@ -737,11 +749,20 @@ public class ImageReceiver implements Watcher, ValueAnimator.AnimatorUpdateListe
             invalidate();
           }
           dispatchCompleted();
+          if (Log.isEnabled(Log.TAG_IMAGE_LOADER)) {
+            Log.i(Log.TAG_IMAGE_LOADER, "RCVREQ %d cachehit %s bmp=%s", System.identityHashCode(this), file.toString(), bmpSig(this.bitmap));
+          }
         }
       } else {
         setBundle(null, null, true);
+        if (Log.isEnabled(Log.TAG_IMAGE_LOADER)) {
+          Log.i(Log.TAG_IMAGE_LOADER, "RCVREQ %d clear", System.identityHashCode(this));
+        }
       }
     } else if (this.file != file) {
+      if (Log.isEnabled(Log.TAG_IMAGE_LOADER)) {
+        Log.i(Log.TAG_IMAGE_LOADER, "RCVREQ %d swap key=%s bmp=%s lp=%b", System.identityHashCode(this), file != null ? file.toString() : "-", bmpSig(this.bitmap), loadPending);
+      }
       setBundle(file, this.bitmap, true);
       if (U.isValidBitmap(this.bitmap)) {
         if (radius > 0) {
@@ -751,6 +772,8 @@ public class ImageReceiver implements Watcher, ValueAnimator.AnimatorUpdateListe
         }
         invalidate();
       }
+    } else if (Log.isEnabled(Log.TAG_IMAGE_LOADER)) {
+      Log.i(Log.TAG_IMAGE_LOADER, "RCVREQ %d noop key=%s bmp=%s a=%f lp=%b", System.identityHashCode(this), file != null ? file.toString() : "-", bmpSig(this.bitmap), alpha, loadPending);
     }
   }
 
@@ -910,6 +933,9 @@ public class ImageReceiver implements Watcher, ValueAnimator.AnimatorUpdateListe
       // The same bitmap object was redelivered while the receiver was faded
       // out: with bitmapChanged false nothing would restart the fade and the
       // image would stay invisible behind the placeholder forever
+      if (Log.isEnabled(Log.TAG_IMAGE_LOADER)) {
+        Log.i(Log.TAG_IMAGE_LOADER, "RCVFADE %d restart key=%s", System.identityHashCode(this), file != null ? file.toString() : "-");
+      }
       if (local) {
         animate();
       } else {
@@ -939,6 +965,9 @@ public class ImageReceiver implements Watcher, ValueAnimator.AnimatorUpdateListe
   public void attach () {
     if (isDetached) {
       isDetached = false;
+      if (Log.isEnabled(Log.TAG_IMAGE_LOADER)) {
+        Log.i(Log.TAG_IMAGE_LOADER, "RCVATT %d cached=%s", System.identityHashCode(this), cachedFile != null ? cachedFile.toString() : "-");
+      }
       if (this.cachedFile != null) {
         requestFile(this.cachedFile);
         this.cachedFile = null;
@@ -950,6 +979,9 @@ public class ImageReceiver implements Watcher, ValueAnimator.AnimatorUpdateListe
   public void detach () {
     if (!isDetached) {
       isDetached = true;
+      if (Log.isEnabled(Log.TAG_IMAGE_LOADER)) {
+        Log.i(Log.TAG_IMAGE_LOADER, "RCVDET %d key=%s", System.identityHashCode(this), file != null ? file.toString() : "-");
+      }
       if (this.file != null) {
         this.cachedFile = this.file;
         isDetached = false;
@@ -1009,7 +1041,11 @@ public class ImageReceiver implements Watcher, ValueAnimator.AnimatorUpdateListe
   @Override
   public void imageLoaded (ImageFile file, boolean successful, Bitmap bitmap) {
     ImageFile currentFile = this.file;
-    if (compareToFile(currentFile, file)) {
+    boolean matched = compareToFile(currentFile, file);
+    if (Log.isEnabled(Log.TAG_IMAGE_LOADER)) {
+      Log.i(Log.TAG_IMAGE_LOADER, "RCVDLV %d match=%b ok=%b key=%s cur=%s bmp=%s", System.identityHashCode(this), matched, successful, file != null ? file.toString() : "-", currentFile != null ? currentFile.toString() : "-", bmpSig(bitmap));
+    }
+    if (matched) {
       loadPending = false;
       if (successful) {
         handler.display(this, currentFile, bitmap);
@@ -1183,8 +1219,41 @@ public class ImageReceiver implements Watcher, ValueAnimator.AnimatorUpdateListe
   // reasoning as BaseThread's own volatile handler field
   private volatile boolean loadPending;
 
+  // Diagnostic field-instrumentation (TAG_IMAGE_LOADER): one line per state
+  // change per receiver, so a device log shows what the on-screen receiver
+  // actually held at the moment a photo rendered blank
+  private String lastDrawSig;
+
+  private static String bmpSig (Bitmap bitmap) {
+    return bitmap == null ? "null" : bitmap.isRecycled() ? "recycled" : bitmap.getWidth() + "x" + bitmap.getHeight();
+  }
+
+  private String stateSig () {
+    final float a = this.alpha;
+    return (file != null ? file.toString() : "-") +
+      "|bmp=" + bmpSig(bitmap) +
+      "|a=" + (a == 0f ? "0" : a == 1f ? "1" : "~") +
+      "|lp=" + loadPending +
+      // Distinguishes "healthy state but nothing to draw" (degenerate rect -
+      // a layout/measure bug) from "healthy state, healthy rect, still white"
+      // (points at the hardware layer/compositing, outside this class)
+      "|rect=" + left + "," + top + "," + right + "," + bottom +
+      (isDetached ? "|det" : "");
+  }
+
+  private void logDrawState () {
+    if (Log.isEnabled(Log.TAG_IMAGE_LOADER)) {
+      String sig = stateSig();
+      if (!sig.equals(lastDrawSig)) {
+        lastDrawSig = sig;
+        Log.i(Log.TAG_IMAGE_LOADER, "RCVDRAW %d %s", System.identityHashCode(this), sig);
+      }
+    }
+  }
+
   @Override
   public void draw (Canvas c) {
+    logDrawState();
     if (!U.isValidBitmap(bitmap)) {
       // Self-heal: the cache recycles a bitmap the moment its references drop
       // to zero, and rebind churn can do that while this receiver still holds
