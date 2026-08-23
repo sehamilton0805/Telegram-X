@@ -899,6 +899,15 @@ public class ImageReceiver implements Watcher, ValueAnimator.AnimatorUpdateListe
           postInvalidate();
         }
       }
+    } else if (U.isValidBitmap(bitmap) && alpha == 0f && ANIMATION_ENABLED && !animationDisabled) {
+      // The same bitmap object was redelivered while the receiver was faded
+      // out: with bitmapChanged false nothing would restart the fade and the
+      // image would stay invisible behind the placeholder forever
+      if (local) {
+        animate();
+      } else {
+        postAnimate();
+      }
     }
 
     return bitmapChanged;
