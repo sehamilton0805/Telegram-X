@@ -1485,6 +1485,11 @@ public class MediaWrapper implements FileProgressComponent.SimpleListener, FileP
   private DoubleImageReceiver previewReceiverReference;
   private Receiver targetReceiverReference;
 
+  // Diagnostic (TAG_IMAGE_LOADER): last logged draw signature + timestamp,
+  // written by MosaicWrapper.draw to detect two views drawing one wrapper
+  String diagLastMosDrawSig;
+  long diagLastMosDrawLogUptime;
+
   public DoubleImageReceiver getPreviewReceiverReference () {
     return previewReceiverReference;
   }

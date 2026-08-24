@@ -30,6 +30,7 @@ import androidx.annotation.Nullable;
 import androidx.recyclerview.widget.RecyclerView;
 
 import org.drinkless.tdlib.TdApi;
+import org.thunderdog.challegram.Log;
 import org.thunderdog.challegram.R;
 import org.thunderdog.challegram.config.Config;
 import org.thunderdog.challegram.core.Lang;
@@ -437,8 +438,22 @@ public class MessageView extends SparseDrawableView implements Destroyable, Draw
     return this;
   }
 
+  // Diagnostic (TAG_IMAGE_LOADER): which message this view instance is
+  // currently drawing. Cross-referenced against MosaicWrapper's MOSREQ/MOSDRAW
+  // and ImageReceiver's RCVDRAW to confirm/refute "two view instances end up
+  // bound to the same message after recycler churn" independently of the
+  // receiver machinery further down
+  private String lastDrawMsgSig;
+
   @Override
   public void onDraw (Canvas c) {
+    if (Log.isEnabled(Log.TAG_IMAGE_LOADER)) {
+      String sig = System.identityHashCode(this) + (isAttachedToWindow() ? "" : "!") + "/" + (msg != null ? msg.getChatId() + "_" + msg.getId() : "-");
+      if (!sig.equals(lastDrawMsgSig)) {
+        lastDrawMsgSig = sig;
+        Log.i(Log.TAG_IMAGE_LOADER, "MVDRAW v=%d%s chat=%d mid=%d", System.identityHashCode(this), isAttachedToWindow() ? "" : "!", msg != null ? msg.getChatId() : 0, msg != null ? msg.getId() : 0);
+      }
+    }
     msg.draw(this, c, avatarReceiver, replyReceiver, replyTextMediaReceiver, previewReceiver, contentReceiver, gifReceiver, complexReceiver);
   }
 

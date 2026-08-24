@@ -1230,6 +1230,7 @@ public class ImageReceiver implements Watcher, ValueAnimator.AnimatorUpdateListe
 
   private String stateSig () {
     final float a = this.alpha;
+    final View v = this.view;
     return (file != null ? file.toString() : "-") +
       "|bmp=" + bmpSig(bitmap) +
       "|a=" + (a == 0f ? "0" : a == 1f ? "1" : "~") +
@@ -1238,6 +1239,10 @@ public class ImageReceiver implements Watcher, ValueAnimator.AnimatorUpdateListe
       // a layout/measure bug) from "healthy state, healthy rect, still white"
       // (points at the hardware layer/compositing, outside this class)
       "|rect=" + left + "," + top + "," + right + "," + bottom +
+      // Which view instance this receiver belongs to ("!" = not attached to
+      // the window): a healthy receiver whose draws all land on a detached
+      // view is the wrong-view cross-wiring smoking gun
+      "|v=" + (v == null ? "-" : System.identityHashCode(v) + (v.isAttachedToWindow() ? "" : "!")) +
       (isDetached ? "|det" : "");
   }
 

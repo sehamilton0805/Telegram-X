@@ -16,6 +16,7 @@ package org.thunderdog.challegram.data;
 
 import android.graphics.Canvas;
 import android.graphics.Paint;
+import android.os.SystemClock;
 import android.view.MotionEvent;
 import android.view.View;
 
@@ -23,6 +24,7 @@ import androidx.annotation.Dimension;
 import androidx.annotation.Nullable;
 
 import org.drinkless.tdlib.TdApi;
+import org.thunderdog.challegram.Log;
 import org.thunderdog.challegram.loader.ComplexReceiver;
 import org.thunderdog.challegram.loader.DoubleImageReceiver;
 import org.thunderdog.challegram.loader.ImageReceiver;
@@ -1009,6 +1011,16 @@ public class MosaicWrapper implements FactorAnimator.Target, ComplexReceiver.Key
     return receiver.getTag() == this;
   }
 
+  // Diagnostic (TAG_IMAGE_LOADER): receiver identity + which view it belongs
+  // to; "!" marks a view that is not attached to the window
+  private static String diagReceiverSig (Receiver receiver) {
+    if (receiver == null) {
+      return "-";
+    }
+    View v = receiver.getTargetView();
+    return System.identityHashCode(receiver) + "@" + (v == null ? "-" : System.identityHashCode(v) + (v.isAttachedToWindow() ? "" : "!"));
+  }
+
   private static int requestFiles (MosaicWrapper context, ComplexReceiver complexReceiver, boolean invalidate, MosaicItemInfo[] items, int startKey) {
     if (items != null) {
       for (MosaicItemInfo item : items) {
@@ -1031,6 +1043,9 @@ public class MosaicWrapper implements FactorAnimator.Target, ComplexReceiver.Key
         }
         receiver.setTag(context);
         item.target.setTargetReceiverReference(receiver);
+        if (Log.isEnabled(Log.TAG_IMAGE_LOADER)) {
+          Log.i(Log.TAG_IMAGE_LOADER, "MOSREQ mw=%d key=%d inv=%b pre=%s rcv=%s", System.identityHashCode(item.target), key, invalidate, diagReceiverSig(preview), diagReceiverSig(receiver));
+        }
       }
     }
     return startKey;
@@ -1247,6 +1262,19 @@ public class MosaicWrapper implements FactorAnimator.Target, ComplexReceiver.Key
         Receiver receiver = item.target.getTargetReceiverReference(); // complexReceiver.getReceiver(key, item.target.needGif());
         if (preview == null || receiver == null) {
           continue;
+        }
+        if (Log.isEnabled(Log.TAG_IMAGE_LOADER)) {
+          // Signature change means the wrapper is being drawn by a different
+          // view or through different receivers than last time; the 250ms
+          // floor keeps a two-views-alternating pathology visible without
+          // flooding the log at frame rate
+          String sig = System.identityHashCode(view) + (view.isAttachedToWindow() ? "" : "!") + "/" + System.identityHashCode(preview) + "/" + System.identityHashCode(receiver);
+          long now = SystemClock.uptimeMillis();
+          if (!sig.equals(item.target.diagLastMosDrawSig) && now - item.target.diagLastMosDrawLogUptime >= 250) {
+            item.target.diagLastMosDrawSig = sig;
+            item.target.diagLastMosDrawLogUptime = now;
+            Log.i(Log.TAG_IMAGE_LOADER, "MOSDRAW mw=%d v=%d%s pre=%s rcv=%s", System.identityHashCode(item.target), System.identityHashCode(view), view.isAttachedToWindow() ? "" : "!", diagReceiverSig(preview), diagReceiverSig(receiver));
+          }
         }
         int x = startX + item.getX();
         int y = startY + item.getY();
