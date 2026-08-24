@@ -2458,6 +2458,17 @@ public class TD {
     return new TdApi.FormattedText(text, null);
   }
 
+  // Text of a contiguous run of blocks - lets the rich message renderer keep
+  // text and media segments in document order instead of flattening
+  public static TdApi.FormattedText textFromPageBlocks (java.util.List<TdApi.PageBlock> blocks) {
+    StringBuilder b = new StringBuilder();
+    int[] mediaCount = {0};
+    for (TdApi.PageBlock block : blocks) {
+      appendPageBlockText(b, block, mediaCount);
+    }
+    return new TdApi.FormattedText(b.toString().trim(), null);
+  }
+
   private static void appendLine (StringBuilder b, @Nullable String line) {
     if (line != null && !line.trim().isEmpty()) {
       if (b.length() > 0) {

@@ -42,39 +42,94 @@ import org.thunderdog.challegram.tool.Screen;
 import org.thunderdog.challegram.util.text.TextWrapper;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 import me.vkryl.android.AnimatorUtils;
 import me.vkryl.android.animator.FactorAnimator;
 import me.vkryl.core.ColorUtils;
 
-// Rich messages (PageBlock-based posts): media blocks rendered as a swipeable
-// carousel (one page per media, dot indicator), the flattened block text below.
-// Tapping the text opens the full post through the native Instant View engine
-// (tables, slideshows, embeds and block order all render there) via a
-// synthetic instant view page
+// Rich messages (PageBlock-based posts) rendered in document order, like the
+// official client: text runs and media segments interleave as authored. A
+// slideshow/collage becomes a swipeable carousel segment (dot indicator, own
+// pager state), a standalone photo/video an inline single-media segment.
+// Tapping text opens the full post through the native Instant View engine via
+// a synthetic instant view page
 public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickListener, me.vkryl.android.util.ClickHelper.Delegate {
-  private static final int ANIMATOR_PAGER = 0;
   private static final float PAGER_MIN_FLING_DP = 400f; // dp per second
+  private static final float PART_SPACING_DP = 10f;
 
   private final TdApi.RichMessage richMessage;
   private final ArrayList<TdApi.PageBlock> mediaBlocks;
+  // Global wrapper list, in document order: receiver keys, the viewer stack
+  // and auto-download all index it; parts reference ranges of it
   private final ArrayList<MediaWrapper> wrappers = new ArrayList<>();
+  private final ArrayList<Part> parts = new ArrayList<>();
   private final me.vkryl.android.util.ClickHelper clickHelper = new me.vkryl.android.util.ClickHelper(this);
-  private final RectF indicatorRect = new RectF();
   private boolean contentInited;
-  private TextWrapper text;
 
-  private int pagerWidth, pagerHeight;
-  private int[] pageCellWidths, pageCellHeights;
-  private float pagerScrollX;
-  private float pagerSnapFrom, pagerSnapTo;
-  private @Nullable FactorAnimator pagerAnimator;
+  private abstract static class Part {
+    int y, height;
+  }
 
-  private boolean pagerTouchActive, pagerDragging;
-  private float pagerTouchStartX, pagerTouchStartY, pagerStartScroll;
-  private @Nullable ViewParent pagerCaughtParent;
-  private @Nullable VelocityTracker pagerVelocityTracker;
+  private static class TextPart extends Part {
+    final TextWrapper wrapper;
+
+    TextPart (TextWrapper wrapper) {
+      this.wrapper = wrapper;
+    }
+  }
+
+  private class MediaPart extends Part implements FactorAnimator.Target {
+    final int firstIndex; // index of this part's first wrapper in the global list
+    final ArrayList<MediaWrapper> pageWrappers = new ArrayList<>();
+    final RectF indicatorRect = new RectF();
+    int pagerWidth, pagerHeight;
+    int[] cellWidths, cellHeights;
+    float scrollX, snapFrom, snapTo;
+    @Nullable FactorAnimator animator;
+
+    MediaPart (int firstIndex) {
+      this.firstIndex = firstIndex;
+    }
+
+    int pageStride () {
+      return pagerWidth + Screen.dp(6f);
+    }
+
+    float clampScroll (float scroll) {
+      float max = (float) pageStride() * (pageWrappers.size() - 1);
+      return Math.max(0f, Math.min(scroll, Math.max(0f, max)));
+    }
+
+    int currentPageIndex () {
+      if (pageWrappers.size() <= 1) {
+        return 0;
+      }
+      int page = Math.round(scrollX / (float) pageStride());
+      return Math.max(0, Math.min(pageWrappers.size() - 1, page));
+    }
+
+    void snapToPage (int page) {
+      float target = clampScroll((float) page * pageStride());
+      if (target == scrollX) {
+        return;
+      }
+      snapFrom = scrollX;
+      snapTo = target;
+      if (animator == null) {
+        animator = new FactorAnimator(0, this, AnimatorUtils.DECELERATE_INTERPOLATOR, 180l);
+      }
+      animator.forceFactor(0f);
+      animator.animateTo(1f);
+    }
+
+    @Override
+    public void onFactorChanged (int id, float factor, float fraction, FactorAnimator callee) {
+      scrollX = snapFrom + (snapTo - snapFrom) * factor;
+      invalidate();
+    }
+  }
 
   public static ArrayList<TdApi.PageBlock> collectMediaBlocks (TdApi.RichMessage richMessage) {
     ArrayList<TdApi.PageBlock> result = new ArrayList<>();
@@ -156,84 +211,170 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
     return null;
   }
 
+  // Document-order segmentation: consecutive non-media blocks accumulate into
+  // one text run; every media block (or media group - slideshow/collage)
+  // flushes the run and becomes its own segment. The traversal mirrors
+  // collectMediaBlocks exactly, so the global wrapper order matches
+  // mediaBlocks and the viewer stack mapping stays index-based
+
+  private void buildParts () {
+    ArrayList<TdApi.PageBlock> textRun = new ArrayList<>();
+    if (richMessage.blocks != null) {
+      for (TdApi.PageBlock block : richMessage.blocks) {
+        segmentBlock(block, textRun);
+      }
+    }
+    flushTextRun(textRun);
+  }
+
+  private void flushTextRun (ArrayList<TdApi.PageBlock> textRun) {
+    if (textRun.isEmpty()) {
+      return;
+    }
+    TdApi.FormattedText partText = TD.textFromPageBlocks(textRun);
+    textRun.clear();
+    if (partText.text.isEmpty()) {
+      return;
+    }
+    TextWrapper wrapper = new TextWrapper(tdlib, partText, getTextStyleProvider(), getTextColorSet(), openParameters(), null)
+      .setViewProvider(currentViews);
+    parts.add(new TextPart(wrapper));
+  }
+
+  private void segmentBlock (TdApi.PageBlock block, ArrayList<TdApi.PageBlock> textRun) {
+    switch (block.getConstructor()) {
+      case TdApi.PageBlockPhoto.CONSTRUCTOR:
+        if (((TdApi.PageBlockPhoto) block).photo != null) {
+          flushTextRun(textRun);
+          addMediaPart(Collections.singletonList(block));
+        }
+        break;
+      case TdApi.PageBlockVideo.CONSTRUCTOR:
+        if (((TdApi.PageBlockVideo) block).video != null) {
+          flushTextRun(textRun);
+          addMediaPart(Collections.singletonList(block));
+        }
+        break;
+      case TdApi.PageBlockAnimation.CONSTRUCTOR:
+        if (((TdApi.PageBlockAnimation) block).animation != null) {
+          flushTextRun(textRun);
+          addMediaPart(Collections.singletonList(block));
+        }
+        break;
+      case TdApi.PageBlockCover.CONSTRUCTOR:
+        segmentBlock(((TdApi.PageBlockCover) block).cover, textRun);
+        break;
+      case TdApi.PageBlockCollage.CONSTRUCTOR:
+      case TdApi.PageBlockSlideshow.CONSTRUCTOR: {
+        ArrayList<TdApi.PageBlock> groupMedia = new ArrayList<>();
+        collectMediaBlocks(groupMedia, block);
+        if (!groupMedia.isEmpty()) {
+          flushTextRun(textRun);
+          addMediaPart(groupMedia);
+        }
+        break;
+      }
+      case TdApi.PageBlockDetails.CONSTRUCTOR: {
+        TdApi.PageBlockDetails details = (TdApi.PageBlockDetails) block;
+        if (details.blocks != null) {
+          for (TdApi.PageBlock innerBlock : details.blocks) {
+            segmentBlock(innerBlock, textRun);
+          }
+        }
+        break;
+      }
+      default:
+        textRun.add(block);
+        break;
+    }
+  }
+
+  private void addMediaPart (List<TdApi.PageBlock> blocks) {
+    MediaPart part = new MediaPart(wrappers.size());
+    for (TdApi.PageBlock mediaBlock : blocks) {
+      MediaWrapper wrapper = newMediaWrapper(mediaBlock);
+      if (wrapper == null) {
+        continue;
+      }
+      wrapper.setViewProvider(currentViews);
+      wrapper.setOnClickListener(this);
+      wrapper.setNeedRound(true, true, true, true);
+      wrappers.add(wrapper);
+      part.pageWrappers.add(wrapper);
+    }
+    if (!part.pageWrappers.isEmpty()) {
+      parts.add(part);
+    }
+  }
+
   @Override
   protected void buildContent (int maxWidth) {
     if (!contentInited) {
       contentInited = true;
-      for (TdApi.PageBlock block : mediaBlocks) {
-        MediaWrapper wrapper = newMediaWrapper(block);
-        if (wrapper == null) {
-          continue;
-        }
-        wrapper.setViewProvider(currentViews);
-        wrapper.setOnClickListener(this);
-        wrapper.setNeedRound(true, true, true, true);
-        wrappers.add(wrapper);
-      }
-      TdApi.FormattedText flatText = TD.textFromRichMessage(richMessage, false);
-      if (!flatText.text.isEmpty()) {
-        this.text = new TextWrapper(tdlib, flatText, getTextStyleProvider(), getTextColorSet(), openParameters(), null)
-          .setViewProvider(currentViews);
-      }
+      buildParts();
     }
-    if (!wrappers.isEmpty()) {
-      pagerWidth = maxWidth;
-      int maxHeight = Math.max(Screen.dp(120f), (int) (maxWidth * 1.2f));
-      // uniform page frame: the tallest media scaled to full width, clamped
-      int height = 0;
-      for (MediaWrapper wrapper : wrappers) {
-        int contentWidth = wrapper.getContentWidth();
-        int contentHeight = wrapper.getContentHeight();
-        if (contentWidth > 0 && contentHeight > 0) {
-          height = Math.max(height, (int) ((float) contentHeight * maxWidth / contentWidth));
-        }
+    int y = 0;
+    boolean first = true;
+    for (Part part : parts) {
+      if (!first) {
+        y += Screen.dp(PART_SPACING_DP);
       }
-      pagerHeight = Math.max(Screen.dp(120f), Math.min(maxHeight, height == 0 ? maxHeight : height));
-      // each media fits centered inside the frame
-      pageCellWidths = new int[wrappers.size()];
-      pageCellHeights = new int[wrappers.size()];
-      for (int i = 0; i < wrappers.size(); i++) {
-        MediaWrapper wrapper = wrappers.get(i);
-        int contentWidth = wrapper.getContentWidth();
-        int contentHeight = wrapper.getContentHeight();
-        if (contentWidth > 0 && contentHeight > 0) {
-          float scale = Math.min((float) pagerWidth / contentWidth, (float) pagerHeight / contentHeight);
-          pageCellWidths[i] = Math.max(1, (int) (contentWidth * scale));
-          pageCellHeights[i] = Math.max(1, (int) (contentHeight * scale));
-        } else {
-          pageCellWidths[i] = pagerWidth;
-          pageCellHeights[i] = pagerHeight;
-        }
+      first = false;
+      part.y = y;
+      if (part instanceof TextPart) {
+        TextWrapper wrapper = ((TextPart) part).wrapper;
+        wrapper.prepare(maxWidth);
+        part.height = wrapper.getHeight();
+      } else {
+        MediaPart mediaPart = (MediaPart) part;
+        layoutMediaPart(mediaPart, maxWidth);
+        part.height = mediaPart.pagerHeight;
       }
-      pagerScrollX = clampPagerScroll(pagerScrollX);
-    }
-    if (text != null) {
-      text.prepare(maxWidth);
+      y += part.height;
     }
   }
 
-  private int pageStride () {
-    return pagerWidth + Screen.dp(6f);
-  }
-
-  private float clampPagerScroll (float scroll) {
-    float max = (float) pageStride() * (wrappers.size() - 1);
-    return Math.max(0f, Math.min(scroll, Math.max(0f, max)));
-  }
-
-  private int currentPageIndex () {
-    if (wrappers.size() <= 1) {
-      return 0;
+  private void layoutMediaPart (MediaPart part, int maxWidth) {
+    part.pagerWidth = maxWidth;
+    int maxHeight = Math.max(Screen.dp(120f), (int) (maxWidth * 1.2f));
+    // uniform page frame: the tallest media scaled to full width, clamped
+    int height = 0;
+    for (MediaWrapper wrapper : part.pageWrappers) {
+      int contentWidth = wrapper.getContentWidth();
+      int contentHeight = wrapper.getContentHeight();
+      if (contentWidth > 0 && contentHeight > 0) {
+        height = Math.max(height, (int) ((float) contentHeight * maxWidth / contentWidth));
+      }
     }
-    int page = Math.round(pagerScrollX / (float) pageStride());
-    return Math.max(0, Math.min(wrappers.size() - 1, page));
+    part.pagerHeight = Math.max(Screen.dp(120f), Math.min(maxHeight, height == 0 ? maxHeight : height));
+    // each media fits centered inside the frame
+    part.cellWidths = new int[part.pageWrappers.size()];
+    part.cellHeights = new int[part.pageWrappers.size()];
+    for (int i = 0; i < part.pageWrappers.size(); i++) {
+      MediaWrapper wrapper = part.pageWrappers.get(i);
+      int contentWidth = wrapper.getContentWidth();
+      int contentHeight = wrapper.getContentHeight();
+      if (contentWidth > 0 && contentHeight > 0) {
+        float scale = Math.min((float) part.pagerWidth / contentWidth, (float) part.pagerHeight / contentHeight);
+        part.cellWidths[i] = Math.max(1, (int) (contentWidth * scale));
+        part.cellHeights[i] = Math.max(1, (int) (contentHeight * scale));
+      } else {
+        part.cellWidths[i] = part.pagerWidth;
+        part.cellHeights[i] = part.pagerHeight;
+      }
+    }
+    part.scrollX = part.clampScroll(part.scrollX);
   }
 
   @Override
   protected int getContentWidth () {
-    int width = wrappers.isEmpty() ? 0 : pagerWidth;
-    if (text != null) {
-      width = Math.max(width, text.getWidth());
+    int width = 0;
+    for (Part part : parts) {
+      if (part instanceof TextPart) {
+        width = Math.max(width, ((TextPart) part).wrapper.getWidth());
+      } else {
+        width = Math.max(width, ((MediaPart) part).pagerWidth);
+      }
     }
     return width;
   }
@@ -241,14 +382,9 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
   @Override
   protected int getContentHeight () {
     int height = 0;
-    if (!wrappers.isEmpty()) {
-      height += pagerHeight;
-    }
-    if (text != null) {
-      if (height > 0) {
-        height += Screen.dp(10f);
-      }
-      height += text.getHeight();
+    if (!parts.isEmpty()) {
+      Part last = parts.get(parts.size() - 1);
+      height = last.y + last.height;
     }
     if (useBubbles()) {
       height += Screen.dp(4f);
@@ -264,7 +400,7 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
   @Override
   public void requestMediaContent (ComplexReceiver receiver, boolean invalidate, int invalidateArg) {
     // Mirrors MosaicWrapper.requestFiles: cache receiver references on the
-    // wrappers, draw through the cached references
+    // wrappers, draw through the drawing view's own receivers
     for (int i = 0; i < wrappers.size(); i++) {
       MediaWrapper wrapper = wrappers.get(i);
       DoubleImageReceiver preview = receiver.getPreviewReceiver(i);
@@ -289,78 +425,83 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
 
   @Override
   protected void drawContent (MessageView view, Canvas c, int startX, int startY, int maxWidth, ComplexReceiver receiver) {
-    int y = startY;
-    if (!wrappers.isEmpty()) {
-      int stride = pageStride();
-      int scroll = Math.round(pagerScrollX);
-      c.save();
-      c.clipRect(startX, y, startX + pagerWidth, y + pagerHeight);
-      for (int i = 0; i < wrappers.size(); i++) {
-        int pageX = startX + i * stride - scroll;
-        if (pageX >= startX + pagerWidth || pageX + pagerWidth <= startX) {
-          continue;
-        }
-        MediaWrapper wrapper = wrappers.get(i);
-        // Same cross-wiring hazard as MosaicWrapper.draw: the per-message
-        // references are last-writer-wins across views, so draw through the
-        // drawing view's own receivers, references as fallback
-        DoubleImageReceiver refPreview = wrapper.getPreviewReceiverReference();
-        Receiver refTarget = wrapper.getTargetReceiverReference();
-        DoubleImageReceiver preview;
-        Receiver target;
-        if (receiver != null) {
-          preview = receiver.getPreviewReceiver(i);
-          target = wrapper.needGif() ? receiver.getGifReceiver(i) : receiver.getImageReceiver(i);
-          if (target.isEmpty() && refTarget != null) {
-            preview = refPreview;
-            target = refTarget;
-          }
-        } else {
-          preview = refPreview;
-          target = refTarget;
-        }
-        if (preview == null || target == null) {
-          continue;
-        }
-        int cellWidth = pageCellWidths[i];
-        int cellHeight = pageCellHeights[i];
-        wrapper.buildContent(cellWidth, cellHeight);
-        wrapper.draw(view, c, pageX + (pagerWidth - cellWidth) / 2, y + (pagerHeight - cellHeight) / 2, preview, target, 1f);
+    for (Part part : parts) {
+      int top = startY + part.y;
+      if (part instanceof TextPart) {
+        ((TextPart) part).wrapper.draw(c, startX, startX + maxWidth, 0, top, null, 1f, view.getTextMediaReceiver());
+      } else {
+        drawMediaPart((MediaPart) part, view, c, startX, top, receiver);
       }
-      c.restore();
-      if (wrappers.size() > 1) {
-        drawPageIndicator(c, startX, y);
-      }
-      y += pagerHeight + Screen.dp(10f);
-    }
-    if (text != null) {
-      text.draw(c, startX, startX + maxWidth, 0, y, null, 1f, view.getTextMediaReceiver());
     }
   }
 
-  private void drawPageIndicator (Canvas c, int startX, int startY) {
-    int count = wrappers.size();
+  private void drawMediaPart (MediaPart part, MessageView view, Canvas c, int startX, int startY, ComplexReceiver receiver) {
+    int stride = part.pageStride();
+    int scroll = Math.round(part.scrollX);
+    c.save();
+    c.clipRect(startX, startY, startX + part.pagerWidth, startY + part.pagerHeight);
+    for (int i = 0; i < part.pageWrappers.size(); i++) {
+      int pageX = startX + i * stride - scroll;
+      if (pageX >= startX + part.pagerWidth || pageX + part.pagerWidth <= startX) {
+        continue;
+      }
+      MediaWrapper wrapper = part.pageWrappers.get(i);
+      int receiverKey = part.firstIndex + i;
+      // Same cross-wiring hazard as MosaicWrapper.draw: the per-message
+      // references are last-writer-wins across views, so draw through the
+      // drawing view's own receivers, references as fallback
+      DoubleImageReceiver refPreview = wrapper.getPreviewReceiverReference();
+      Receiver refTarget = wrapper.getTargetReceiverReference();
+      DoubleImageReceiver preview;
+      Receiver target;
+      if (receiver != null) {
+        preview = receiver.getPreviewReceiver(receiverKey);
+        target = wrapper.needGif() ? receiver.getGifReceiver(receiverKey) : receiver.getImageReceiver(receiverKey);
+        if (target.isEmpty() && refTarget != null) {
+          preview = refPreview;
+          target = refTarget;
+        }
+      } else {
+        preview = refPreview;
+        target = refTarget;
+      }
+      if (preview == null || target == null) {
+        continue;
+      }
+      int cellWidth = part.cellWidths[i];
+      int cellHeight = part.cellHeights[i];
+      wrapper.buildContent(cellWidth, cellHeight);
+      wrapper.draw(view, c, pageX + (part.pagerWidth - cellWidth) / 2, startY + (part.pagerHeight - cellHeight) / 2, preview, target, 1f);
+    }
+    c.restore();
+    if (part.pageWrappers.size() > 1) {
+      drawPageIndicator(part, c, startX, startY);
+    }
+  }
+
+  private void drawPageIndicator (MediaPart part, Canvas c, int startX, int startY) {
+    int count = part.pageWrappers.size();
     if (count > 10) {
       // too many dots - counter chip in the corner, duration-badge style
-      String counter = (currentPageIndex() + 1) + "/" + count;
+      String counter = (part.currentPageIndex() + 1) + "/" + count;
       TextPaint paint = Paints.whiteMediumPaint(13f, false, false);
       float textWidth = U.measureText(counter, paint);
-      float right = startX + pagerWidth - Screen.dp(8f);
+      float right = startX + part.pagerWidth - Screen.dp(8f);
       float top = startY + Screen.dp(8f);
       float textX = right - Screen.dp(4f) - textWidth;
-      indicatorRect.set(textX - Screen.dp(4f), top, right, top + Screen.dp(20f));
-      c.drawRoundRect(indicatorRect, Screen.dp(4f), Screen.dp(4f), Paints.fillingPaint(0x4c000000));
+      part.indicatorRect.set(textX - Screen.dp(4f), top, right, top + Screen.dp(20f));
+      c.drawRoundRect(part.indicatorRect, Screen.dp(4f), Screen.dp(4f), Paints.fillingPaint(0x4c000000));
       c.drawText(counter, textX, top + Screen.dp(15f), paint);
     } else {
       float radius = Screen.dp(2.5f);
       float spacing = Screen.dp(9f);
       float rowWidth = spacing * (count - 1);
-      float firstCenterX = startX + pagerWidth / 2f - rowWidth / 2f;
-      float centerY = startY + pagerHeight - Screen.dp(12f);
+      float firstCenterX = startX + part.pagerWidth / 2f - rowWidth / 2f;
+      float centerY = startY + part.pagerHeight - Screen.dp(12f);
       float chipRadius = Screen.dp(7.5f);
-      indicatorRect.set(firstCenterX - Screen.dp(8f), centerY - chipRadius, firstCenterX + rowWidth + Screen.dp(8f), centerY + chipRadius);
-      c.drawRoundRect(indicatorRect, chipRadius, chipRadius, Paints.fillingPaint(0x4c000000));
-      float positionFactor = pagerScrollX / (float) pageStride();
+      part.indicatorRect.set(firstCenterX - Screen.dp(8f), centerY - chipRadius, firstCenterX + rowWidth + Screen.dp(8f), centerY + chipRadius);
+      c.drawRoundRect(part.indicatorRect, chipRadius, chipRadius, Paints.fillingPaint(0x4c000000));
+      float positionFactor = part.scrollX / (float) part.pageStride();
       for (int i = 0; i < count; i++) {
         float factor = Math.max(0f, Math.min(1f, 1f - Math.abs(positionFactor - i)));
         c.drawCircle(firstCenterX + spacing * i, centerY, radius, Paints.fillingPaint(ColorUtils.color((int) (255f * (.5f + .5f * factor)), 0xffffff)));
@@ -368,22 +509,41 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
     }
   }
 
-  // Carousel gesture: claims the parent on touch-down over the pager
+  // Hit testing in content coordinates: parts stack vertically
+
+  private @Nullable Part findPartAt (float x, float y) {
+    int left = getContentX();
+    int top = getContentY();
+    float relY = y - top;
+    for (Part part : parts) {
+      if (relY >= part.y && relY < part.y + part.height) {
+        if (part instanceof MediaPart) {
+          return (x >= left && x <= left + ((MediaPart) part).pagerWidth) ? part : null;
+        }
+        return part;
+      }
+    }
+    return null;
+  }
+
+  private @Nullable MediaPart findMediaPartAt (float x, float y) {
+    Part part = findPartAt(x, y);
+    return part instanceof MediaPart ? (MediaPart) part : null;
+  }
+
+  // Carousel gesture: claims the parent on touch-down over a pager
   // (FileComponent seek precedent - the only way to beat swipe-to-reply, whose
   // check in MessageView runs before the message gets the move event), then
   // releases it if the gesture turns out vertical so the list can scroll
 
-  private boolean isInsidePager (float x, float y) {
-    if (wrappers.isEmpty()) {
-      return false;
-    }
-    int left = getContentX();
-    int top = getContentY();
-    return x >= left && x <= left + pagerWidth && y >= top && y <= top + pagerHeight;
-  }
+  private @Nullable MediaPart touchPart;
+  private boolean pagerDragging;
+  private float pagerTouchStartX, pagerTouchStartY, pagerStartScroll;
+  private @Nullable ViewParent pagerCaughtParent;
+  private @Nullable VelocityTracker pagerVelocityTracker;
 
   private void dropPagerTouch () {
-    pagerTouchActive = false;
+    touchPart = null;
     pagerDragging = false;
     if (pagerCaughtParent != null) {
       pagerCaughtParent.requestDisallowInterceptTouchEvent(false);
@@ -395,57 +555,36 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
     }
   }
 
-  private int findSnapTarget (float velocityX) {
-    int stride = pageStride();
+  private int findSnapTarget (MediaPart part, float velocityX) {
+    int stride = part.pageStride();
     int target;
     if (Math.abs(velocityX) >= Screen.dp(PAGER_MIN_FLING_DP)) {
       if (velocityX < 0) {
-        target = (int) Math.floor(pagerScrollX / stride) + 1;
+        target = (int) Math.floor(part.scrollX / stride) + 1;
       } else {
-        target = (int) Math.ceil(pagerScrollX / stride) - 1;
+        target = (int) Math.ceil(part.scrollX / stride) - 1;
       }
     } else {
-      target = Math.round(pagerScrollX / (float) stride);
+      target = Math.round(part.scrollX / (float) stride);
     }
-    return Math.max(0, Math.min(wrappers.size() - 1, target));
-  }
-
-  private void snapToPage (int page) {
-    float target = clampPagerScroll((float) page * pageStride());
-    if (target == pagerScrollX) {
-      return;
-    }
-    pagerSnapFrom = pagerScrollX;
-    pagerSnapTo = target;
-    if (pagerAnimator == null) {
-      pagerAnimator = new FactorAnimator(ANIMATOR_PAGER, this, AnimatorUtils.DECELERATE_INTERPOLATOR, 180l);
-    }
-    pagerAnimator.forceFactor(0f);
-    pagerAnimator.animateTo(1f);
-  }
-
-  @Override
-  protected void onChildFactorChanged (int id, float factor, float fraction) {
-    if (id == ANIMATOR_PAGER) {
-      pagerScrollX = pagerSnapFrom + (pagerSnapTo - pagerSnapFrom) * factor;
-      invalidate();
-    }
+    return Math.max(0, Math.min(part.pageWrappers.size() - 1, target));
   }
 
   private boolean pagerOnTouchEvent (MessageView view, MotionEvent e) {
     switch (e.getAction()) {
       case MotionEvent.ACTION_DOWN: {
-        pagerTouchActive = false;
-        if (wrappers.size() > 1 && isInsidePager(e.getX(), e.getY())) {
-          pagerTouchActive = true;
+        touchPart = null;
+        MediaPart part = findMediaPartAt(e.getX(), e.getY());
+        if (part != null && part.pageWrappers.size() > 1) {
+          touchPart = part;
           pagerDragging = false;
           pagerTouchStartX = e.getX();
           pagerTouchStartY = e.getY();
-          if (pagerAnimator != null && pagerAnimator.isAnimating()) {
+          if (part.animator != null && part.animator.isAnimating()) {
             // freeze the snap mid-flight so the finger catches the pager
-            pagerAnimator.forceFactor(pagerAnimator.getFactor());
+            part.animator.forceFactor(part.animator.getFactor());
           }
-          pagerStartScroll = pagerScrollX;
+          pagerStartScroll = part.scrollX;
           pagerCaughtParent = view.getParent();
           if (pagerCaughtParent != null) {
             pagerCaughtParent.requestDisallowInterceptTouchEvent(true);
@@ -461,7 +600,8 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
         return false;
       }
       case MotionEvent.ACTION_MOVE: {
-        if (!pagerTouchActive) {
+        MediaPart part = touchPart;
+        if (part == null) {
           return false;
         }
         if (pagerVelocityTracker != null) {
@@ -480,14 +620,15 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
           }
         }
         if (pagerDragging) {
-          pagerScrollX = clampPagerScroll(pagerStartScroll + (pagerTouchStartX - e.getX()));
+          part.scrollX = part.clampScroll(pagerStartScroll + (pagerTouchStartX - e.getX()));
           invalidate();
           return true;
         }
         return false;
       }
       case MotionEvent.ACTION_UP: {
-        if (!pagerTouchActive) {
+        MediaPart part = touchPart;
+        if (part == null) {
           return false;
         }
         boolean wasDragging = pagerDragging;
@@ -499,19 +640,20 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
         }
         dropPagerTouch();
         if (wasDragging) {
-          snapToPage(findSnapTarget(velocityX));
+          part.snapToPage(findSnapTarget(part, velocityX));
           return true;
         }
         return false;
       }
       case MotionEvent.ACTION_CANCEL: {
-        if (!pagerTouchActive) {
+        MediaPart part = touchPart;
+        if (part == null) {
           return false;
         }
         boolean wasDragging = pagerDragging;
         dropPagerTouch();
         if (wasDragging) {
-          snapToPage(currentPageIndex());
+          part.snapToPage(part.currentPageIndex());
         }
         return false;
       }
@@ -527,33 +669,29 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
     if (super.onTouchEvent(view, e)) {
       return true;
     }
-    if (text != null && text.onTouchEvent(view, e)) {
-      return true;
+    for (Part part : parts) {
+      if (part instanceof TextPart && ((TextPart) part).wrapper.onTouchEvent(view, e)) {
+        return true;
+      }
     }
     return clickHelper.onTouchEvent(view, e);
   }
 
-  // Taps: the current carousel page opens the viewer, the text area opens the
-  // full post in the Instant View engine
+  // Taps: a media segment opens the viewer at its current page, a text
+  // segment opens the full post in the Instant View engine
 
   @Override
   public boolean needClickAt (View view, float x, float y) {
-    if (isInsidePager(x, y)) {
-      return true;
-    }
-    if (text == null) {
-      return false;
-    }
-    float contentY = y - getContentY();
-    float textTop = !wrappers.isEmpty() ? pagerHeight + Screen.dp(10f) : 0;
-    return contentY >= textTop && contentY <= textTop + text.getHeight();
+    return findPartAt(x, y) != null;
   }
 
   @Override
   public void onClickAt (View view, float x, float y) {
-    if (isInsidePager(x, y)) {
-      onClick(view, wrappers.get(currentPageIndex()));
-    } else {
+    Part part = findPartAt(x, y);
+    if (part instanceof MediaPart) {
+      MediaPart mediaPart = (MediaPart) part;
+      onClick(view, wrappers.get(mediaPart.firstIndex + mediaPart.currentPageIndex()));
+    } else if (part != null) {
       openFullView();
     }
   }
@@ -591,8 +729,9 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
   @Override
   public boolean performLongPress (View view, float x, float y) {
     boolean result = super.performLongPress(view, x, y);
-    if (!wrappers.isEmpty()) {
-      result = wrappers.get(currentPageIndex()).performLongPress(view) || result;
+    MediaPart part = findMediaPartAt(x, y);
+    if (part != null) {
+      result = part.pageWrappers.get(part.currentPageIndex()).performLongPress(view) || result;
     }
     return result;
   }
@@ -644,13 +783,5 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
     for (MediaWrapper wrapper : wrappers) {
       wrapper.getFileProgress().downloadAutomatically(type);
     }
-  }
-
-  @Override
-  protected void onMessageContainerDestroyed () {
-    for (MediaWrapper wrapper : wrappers) {
-      wrapper.destroy();
-    }
-    dropPagerTouch();
   }
 }
