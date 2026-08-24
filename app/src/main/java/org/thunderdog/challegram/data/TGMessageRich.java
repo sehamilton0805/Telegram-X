@@ -301,10 +301,25 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
           continue;
         }
         MediaWrapper wrapper = wrappers.get(i);
-        DoubleImageReceiver preview = wrapper.getPreviewReceiverReference();
-        Receiver target = wrapper.getTargetReceiverReference();
+        // Same cross-wiring hazard as MosaicWrapper.draw: the per-message
+        // references are last-writer-wins across views, so draw through the
+        // drawing view's own receivers, references as fallback
+        DoubleImageReceiver refPreview = wrapper.getPreviewReceiverReference();
+        Receiver refTarget = wrapper.getTargetReceiverReference();
+        DoubleImageReceiver preview;
+        Receiver target;
+        if (receiver != null) {
+          preview = receiver.getPreviewReceiver(i);
+          target = wrapper.needGif() ? receiver.getGifReceiver(i) : receiver.getImageReceiver(i);
+          if (target.isEmpty() && refTarget != null) {
+            preview = refPreview;
+            target = refTarget;
+          }
+        } else {
+          preview = refPreview;
+          target = refTarget;
+        }
         if (preview == null || target == null) {
-          // receivers not requested yet - same guard as MosaicWrapper.draw
           continue;
         }
         int cellWidth = pageCellWidths[i];

@@ -1021,31 +1021,35 @@ public class MosaicWrapper implements FactorAnimator.Target, ComplexReceiver.Key
     return System.identityHashCode(receiver) + "@" + (v == null ? "-" : System.identityHashCode(v) + (v.isAttachedToWindow() ? "" : "!"));
   }
 
+  private static void requestFilesFor (MosaicWrapper context, ComplexReceiver complexReceiver, boolean invalidate, MediaWrapper target, int key) {
+    DoubleImageReceiver preview = complexReceiver.getPreviewReceiver(key);
+    preview.setTag(context);
+    if (!invalidate || target.showPreview()) {
+      target.requestPreview(preview);
+    }
+    target.setPreviewReceiverReference(preview);
+    Receiver receiver;
+    if (target.needGif()) {
+      GifReceiver gifReceiver = complexReceiver.getGifReceiver(key);
+      target.requestGif(gifReceiver);
+      receiver = gifReceiver;
+    } else {
+      ImageReceiver imageReceiver = complexReceiver.getImageReceiver(key);
+      target.requestImage(imageReceiver);
+      receiver = imageReceiver;
+    }
+    receiver.setTag(context);
+    target.setTargetReceiverReference(receiver);
+    if (Log.isEnabled(Log.TAG_IMAGE_LOADER)) {
+      Log.i(Log.TAG_IMAGE_LOADER, "MOSREQ mw=%d key=%d inv=%b pre=%s rcv=%s", System.identityHashCode(target), key, invalidate, diagReceiverSig(preview), diagReceiverSig(receiver));
+    }
+  }
+
   private static int requestFiles (MosaicWrapper context, ComplexReceiver complexReceiver, boolean invalidate, MosaicItemInfo[] items, int startKey) {
     if (items != null) {
       for (MosaicItemInfo item : items) {
         int key = startKey == -1 ? item.target.getReceiverKey() : startKey++;
-        DoubleImageReceiver preview = complexReceiver.getPreviewReceiver(key);
-        preview.setTag(context);
-        if (!invalidate || item.target.showPreview()) {
-          item.target.requestPreview(preview);
-        }
-        item.target.setPreviewReceiverReference(preview);
-        Receiver receiver;
-        if (item.target.needGif()) {
-          GifReceiver gifReceiver = complexReceiver.getGifReceiver(key);
-          item.target.requestGif(gifReceiver);
-          receiver = gifReceiver;
-        } else {
-          ImageReceiver imageReceiver = complexReceiver.getImageReceiver(key);
-          item.target.requestImage(imageReceiver);
-          receiver = imageReceiver;
-        }
-        receiver.setTag(context);
-        item.target.setTargetReceiverReference(receiver);
-        if (Log.isEnabled(Log.TAG_IMAGE_LOADER)) {
-          Log.i(Log.TAG_IMAGE_LOADER, "MOSREQ mw=%d key=%d inv=%b pre=%s rcv=%s", System.identityHashCode(item.target), key, invalidate, diagReceiverSig(preview), diagReceiverSig(receiver));
-        }
+        requestFilesFor(context, complexReceiver, invalidate, item.target, key);
       }
     }
     return startKey;
@@ -1055,6 +1059,20 @@ public class MosaicWrapper implements FactorAnimator.Target, ComplexReceiver.Key
     /*int i = requestFiles(this, complexReceiver, invalidate, mosaicItems, 0);
     i = requestFiles(this, complexReceiver, invalidate, addedMosaicItems, i);
     complexReceiver.clearReceiversWithHigherKey(i);*/
+
+    if (mosaicItems == null) {
+      // First build hasn't happened yet: a freshly received message can be
+      // bound (and its files requested) before its first layout pass, and
+      // iterating the not-yet-existing built items would silently request
+      // nothing - with no retry after the build, the photo stayed a blank
+      // bubble until the next rebind. The wrapper list exists from the
+      // constructor on - request through it
+      for (MediaWrapper wrapper : items) {
+        requestFilesFor(this, complexReceiver, invalidate, wrapper, wrapper.getReceiverKey());
+      }
+      complexReceiver.clearReceivers(this);
+      return;
+    }
 
     requestFiles(this, complexReceiver, invalidate, mosaicItems, -1);
     requestFiles(this, complexReceiver, invalidate, addedMosaicItems, -1);
@@ -1248,18 +1266,44 @@ public class MosaicWrapper implements FactorAnimator.Target, ComplexReceiver.Key
   public <T extends View & DrawableProvider> void draw (T view, Canvas c, int startX, int startY, ComplexReceiver complexReceiver, boolean needSeparators) {
     lastStartX = startX;
     lastStartY = startY;
-    draw(view, c, startX, startY, complexReceiver, mosaicItems, needSeparators);
-    draw(view, c, startX, startY, complexReceiver, addedMosaicItems, needSeparators);
+    draw(this, view, c, startX, startY, complexReceiver, mosaicItems, needSeparators);
+    draw(this, view, c, startX, startY, complexReceiver, addedMosaicItems, needSeparators);
   }
 
   private static float[] lines = new float[8];
 
-  private static <T extends View & DrawableProvider> void draw (T view, Canvas c, int startX, int startY, ComplexReceiver complexReceiver, MosaicItemInfo[] items, boolean needSeparators) {
+  private static <T extends View & DrawableProvider> void draw (MosaicWrapper context, T view, Canvas c, int startX, int startY, ComplexReceiver complexReceiver, MosaicItemInfo[] items, boolean needSeparators) {
     if (items != null) {
       for (MosaicItemInfo item : items) {
-        // int key = item.target.getReceiverKey();
-        DoubleImageReceiver preview = item.target.getPreviewReceiverReference(); // complexReceiver.getPreviewReceiver(key);
-        Receiver receiver = item.target.getTargetReceiverReference(); // complexReceiver.getReceiver(key, item.target.needGif());
+        // The per-message receiver references are last-writer-wins across all
+        // views this message is bound to: with two holders juggling one
+        // message (a constantly edited/replaced bot anchor), the visible view
+        // ends up drawing another view's receiver, whose invalidate() calls
+        // land on that other - possibly detached - view. Draw through the
+        // receivers of the view that is actually drawing; the references
+        // remain a fallback for receivers this view never requested
+        DoubleImageReceiver refPreview = item.target.getPreviewReceiverReference();
+        Receiver refReceiver = item.target.getTargetReceiverReference();
+        DoubleImageReceiver preview;
+        Receiver receiver;
+        if (complexReceiver != null) {
+          int key = item.target.getReceiverKey();
+          preview = complexReceiver.getPreviewReceiver(key);
+          preview.setTag(context);
+          if (item.target.needGif()) {
+            receiver = complexReceiver.getGifReceiver(key);
+          } else {
+            receiver = complexReceiver.getImageReceiver(key);
+          }
+          receiver.setTag(context);
+          if (receiver.isEmpty() && refReceiver != null) {
+            preview = refPreview;
+            receiver = refReceiver;
+          }
+        } else {
+          preview = refPreview;
+          receiver = refReceiver;
+        }
         if (preview == null || receiver == null) {
           continue;
         }
