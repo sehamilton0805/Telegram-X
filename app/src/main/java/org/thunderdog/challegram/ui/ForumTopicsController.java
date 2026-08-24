@@ -513,6 +513,54 @@ public class ForumTopicsController extends RecyclerViewController<ForumTopicsCon
     }
   }
 
+  // Local counter math: every message/read event used to cost one GetForumTopic
+  // round-trip, so badges lagged by network latency and froze entirely once a
+  // busy forum ran the queue into rate limits (refetchTopic swallows errors).
+  // Events now apply to the visible row instantly; the server is consulted once
+  // per topic via a debounced reconcile only when the local value is a guess
+
+  private void afterLocalTopicChange (int index, TdApi.ForumTopic topic) {
+    updateTopicRow(index, topic);
+    if (endReached) {
+      topicsSessionCache.put(topicsCacheKey(), new ArrayList<>(topics));
+    }
+    checkStuckUnreadCounter();
+    healPhantomTopicCounters();
+    refreshCurrentRailBadge();
+  }
+
+  private final java.util.HashSet<Integer> pendingTopicReconciles = new java.util.HashSet<>();
+
+  private void scheduleTopicReconcile (int forumTopicId) {
+    if (pendingTopicReconciles.add(forumTopicId)) {
+      runOnUiThread(() -> {
+        pendingTopicReconciles.remove(forumTopicId);
+        if (!isDestroyed() && indexOfTopic(forumTopicId) != -1) {
+          refetchTopic(forumTopicId);
+        }
+      }, 1500l);
+    }
+  }
+
+  private void applyNewMessageLocally (TdApi.Message message) {
+    int forumTopicId = forumTopicIdOf(message);
+    int index = forumTopicId != 0 ? indexOfTopic(forumTopicId) : -1;
+    if (index == -1) {
+      return;
+    }
+    TdApi.ForumTopic topic = topics.get(index);
+    if (topic.lastMessage == null || message.id > topic.lastMessage.id) {
+      topic.lastMessage = message;
+    }
+    if (!message.isOutgoing && message.id > topic.lastReadInboxMessageId) {
+      topic.unreadCount++;
+      // The increment is exact for ordinary messages; reconcile guards the
+      // exotic ones (messages the server excludes from the unread count)
+      scheduleTopicReconcile(forumTopicId);
+    }
+    afterLocalTopicChange(index, topic);
+  }
+
   private static int forumTopicIdOf (TdApi.Message message) {
     return message != null && message.topicId != null && message.topicId.getConstructor() == TdApi.MessageTopicForum.CONSTRUCTOR ?
       ((TdApi.MessageTopicForum) message.topicId).forumTopicId : 0;
@@ -521,10 +569,9 @@ public class ForumTopicsController extends RecyclerViewController<ForumTopicsCon
   @Override
   public void onNewMessage (TdApi.Message message) {
     if (message.chatId == chatId()) {
-      int forumTopicId = forumTopicIdOf(message);
       tdlib.ui().post(() -> {
         if (!isDestroyed()) {
-          onChatMessagesChanged(forumTopicId);
+          applyNewMessageLocally(message);
         }
       });
     }
@@ -539,7 +586,7 @@ public class ForumTopicsController extends RecyclerViewController<ForumTopicsCon
           for (TdApi.ForumTopic topic : topics) {
             for (long messageId : messageIds) {
               if (topic.lastMessage != null && topic.lastMessage.id == messageId) {
-                refetchTopic(topic.info.forumTopicId);
+                scheduleTopicReconcile(topic.info.forumTopicId);
                 break;
               }
             }
@@ -566,7 +613,28 @@ public class ForumTopicsController extends RecyclerViewController<ForumTopicsCon
   public void onForumTopicUpdated (long chatId, long forumTopicId, boolean isPinned, long lastReadInboxMessageId, long lastReadOutboxMessageId, TdApi.ChatNotificationSettings notificationSettings) {
     tdlib.ui().post(() -> {
       if (!isDestroyed()) {
-        onChatMessagesChanged((int) forumTopicId);
+        int index = indexOfTopic((int) forumTopicId);
+        if (index == -1) {
+          return;
+        }
+        TdApi.ForumTopic topic = topics.get(index);
+        topic.isPinned = isPinned;
+        topic.notificationSettings = notificationSettings;
+        if (lastReadOutboxMessageId > topic.lastReadOutboxMessageId) {
+          topic.lastReadOutboxMessageId = lastReadOutboxMessageId;
+        }
+        if (lastReadInboxMessageId > topic.lastReadInboxMessageId) {
+          topic.lastReadInboxMessageId = lastReadInboxMessageId;
+          if (topic.lastMessage != null && lastReadInboxMessageId >= topic.lastMessage.id) {
+            // Read up to (or past) the last known message - the badge is over.
+            // This is the transition the eye waits for; it must not ride a network round-trip
+            topic.unreadCount = 0;
+          } else if (topic.unreadCount > 0) {
+            // Partial read: the exact remainder is only known server-side
+            scheduleTopicReconcile((int) forumTopicId);
+          }
+        }
+        afterLocalTopicChange(index, topic);
       }
     });
   }
