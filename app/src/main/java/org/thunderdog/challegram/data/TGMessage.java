@@ -5594,6 +5594,18 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
     // Override in children
   }
 
+  // Auto-download lived only in MessagesAdapter.onBindViewHolder (and the
+  // in-place edit branch above): a message bound through any other path -
+  // e.g. a fresh message landing in an already-attached recycled view - never
+  // started its downloads, leaving media behind a manual download button.
+  // Called from MessageView.setMessage so every bind path is covered
+  public final void autoDownloadContent () {
+    TdApi.Chat chat = tdlib.chat(msg.chatId);
+    if (chat != null) {
+      autoDownloadContent(chat.type);
+    }
+  }
+
   protected boolean shouldHideMedia () {
     return BitwiseUtils.hasFlag(flags, FLAG_HIDE_MEDIA);
   }

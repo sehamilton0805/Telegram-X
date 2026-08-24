@@ -1229,21 +1229,29 @@ public class MosaicWrapper implements FactorAnimator.Target, ComplexReceiver.Key
   public void autoDownloadContent (TdApi.ChatType chatType) {
     boolean force = parent != null && parent.isSponsoredMessage();
     this.autoDownloadChatType = chatType;
-    RunnableData<MosaicItemInfo> act = item -> {
-      if (force && item.target.isPhoto()) {
-        item.target.getFileProgress().downloadIfNeeded();
+    RunnableData<MediaWrapper> act = target -> {
+      if (force && target.isPhoto()) {
+        target.getFileProgress().downloadIfNeeded();
       } else {
-        item.target.getFileProgress().downloadAutomatically(chatType);
+        target.getFileProgress().downloadAutomatically(chatType);
       }
     };
-    if (mosaicItems != null) {
-      for (MosaicItemInfo item : mosaicItems) {
-        act.runWithData(item);
+    if (mosaicItems == null) {
+      // Same trap as requestFiles: before the first build there are no built
+      // items to iterate, so a fresh message bound before its first layout
+      // silently skipped auto-download and its media sat behind a manual
+      // download button. The wrapper list exists from the constructor on
+      for (MediaWrapper wrapper : items) {
+        act.runWithData(wrapper);
       }
+      return;
+    }
+    for (MosaicItemInfo item : mosaicItems) {
+      act.runWithData(item.target);
     }
     if (addedMosaicItems != null) {
       for (MosaicItemInfo item : addedMosaicItems) {
-        act.runWithData(item);
+        act.runWithData(item.target);
       }
     }
   }

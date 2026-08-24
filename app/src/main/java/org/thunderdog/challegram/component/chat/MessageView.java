@@ -322,6 +322,7 @@ public class MessageView extends SparseDrawableView implements Destroyable, Draw
     }
 
     message.resetTransformState();
+    message.autoDownloadContent();
     message.requestAvatar(avatarReceiver);
     message.requestReactions(reactionsComplexReceiver);
     message.requestCommentsResources(avatarsReceiver, false);
