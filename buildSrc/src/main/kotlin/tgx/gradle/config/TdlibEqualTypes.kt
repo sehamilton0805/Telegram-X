@@ -104,8 +104,10 @@ fun tdlibEqualTypes(): Array<TdlibType> = arrayOf(
   TdlibType("BuiltInTheme"),
 
   TdlibType("RichMessage"),
-  TdlibType("RichText"),
-  TdlibType("PageBlock"),
+  // Bot API 10.3: InlineButton and InputRichMessage have no generated
+  // comparators yet - ignore the fields so generation stays compilable
+  TdlibType("RichText", ignoredFields = setOf("RichTextButton.button")),
+  TdlibType("PageBlock", ignoredFields = setOf("PageBlockButtonRow.buttons")),
   TdlibType("PageBlockCaption"),
   TdlibType("PageBlockListItem"),
   TdlibType("PageBlockRelatedArticle"),
@@ -114,7 +116,7 @@ fun tdlibEqualTypes(): Array<TdlibType> = arrayOf(
   TdlibType("PageBlockVerticalAlignment"),
   TdlibType("ChatPhotoInfo"),
 
-  TdlibType("DraftMessageContent", isExperimental = true),
+  TdlibType("DraftMessageContent", ignoredFields = setOf("DraftMessageContentInputRichMessage.message"), isExperimental = true),
 
   TdlibType("CanSendMessageToUserResult"),
   TdlibType("MessageSelfDestructType"),
