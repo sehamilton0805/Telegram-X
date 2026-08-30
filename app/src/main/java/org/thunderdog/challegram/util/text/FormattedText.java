@@ -572,8 +572,14 @@ public class FormattedText {
         }
         break;
       }
+      case TdApi.RichTextButton.CONSTRUCTOR: {
+        // No dedicated click-through UI for buttons embedded in article rich
+        // text yet; render the button's own label inline rather than crash
+        parseRichText(context, ((TdApi.RichTextButton) in).button.text, out, entities, offset, flags, linkOffset, linkLength, linkType, link, linkCached, referenceAnchorName, copyLink, openParameters);
+        break;
+      }
       default: {
-        Td.assertRichText_d57ed958();
+        Td.assertRichText_caec3729();
         throw Td.unsupported(in);
       }
     }

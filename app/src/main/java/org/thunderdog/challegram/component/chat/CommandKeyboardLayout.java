@@ -269,8 +269,12 @@ public class CommandKeyboardLayout extends ViewGroup implements ViewTreeObserver
         return ColorId.iconPositive;
       case TdApi.ButtonStyleDanger.CONSTRUCTOR:
         return ColorId.textNegative;
+      case TdApi.ButtonStyleLink.CONSTRUCTOR:
+        // Link styling not adopted yet - default look beats a crash (mirrors
+        // TGInlineKeyboard.resolveStyleColorId)
+        return ColorId.NONE;
       default: {
-        Td.assertButtonStyle_da99259d();
+        Td.assertButtonStyle_4f30e8d0();
         throw Td.unsupported(style);
       }
     }

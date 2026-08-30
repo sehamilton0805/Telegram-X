@@ -4825,7 +4825,7 @@ public class Tdlib implements TdlibProvider, Settings.SettingsChangeListener, Da
       case TdApi.MessageAnimation.CONSTRUCTOR:
         return !photoVideoOnly;
       default:
-        Td.assertMessageContent_a80283cf();
+        Td.assertMessageContent_af730a78();
         break;
     }
 
@@ -4909,7 +4909,7 @@ public class Tdlib implements TdlibProvider, Settings.SettingsChangeListener, Da
         case TdApi.MessageAnimatedEmoji.CONSTRUCTOR:
           return Td.textOrCaption(messageText);
       }
-      Td.assertMessageContent_a80283cf();
+      Td.assertMessageContent_af730a78();
       throw Td.unsupported(messageText);
     }
     MessageEditMediaPending pendingEditMedia = getPendingMessageMedia(chatId, messageId);
@@ -7592,7 +7592,7 @@ public class Tdlib implements TdlibProvider, Settings.SettingsChangeListener, Da
         break;
       }
       default: {
-        Td.assertMessageContent_a80283cf();
+        Td.assertMessageContent_af730a78();
         break;
       }
     }
@@ -10548,6 +10548,12 @@ public class Tdlib implements TdlibProvider, Settings.SettingsChangeListener, Da
       case TdApi.UpdateStakeDiceState.CONSTRUCTOR:
       case TdApi.UpdateNewOauthRequest.CONSTRUCTOR:
       case TdApi.UpdateTextCompositionStyles.CONSTRUCTOR:
+      // Bot API 10.3 level: not adopted yet, must not crash the update loop
+      case TdApi.UpdateChatHasWelcomeMessages.CONSTRUCTOR:
+      case TdApi.UpdateChatWelcomeMessages.CONSTRUCTOR:
+      case TdApi.UpdateCommunityFullInfo.CONSTRUCTOR:
+      case TdApi.UpdateMessageEphemeralContent.CONSTRUCTOR:
+      case TdApi.UpdateStopMessageDraft.CONSTRUCTOR:
         break;
 
       // for bots only.
@@ -10579,7 +10585,7 @@ public class Tdlib implements TdlibProvider, Settings.SettingsChangeListener, Da
         throw Td.unsupported(update);
       }
       default: {
-        Td.assertUpdate_d96eca42();
+        Td.assertUpdate_a21b1e40();
         throw Td.unsupported(update);
       }
     }
@@ -11606,7 +11612,7 @@ public class Tdlib implements TdlibProvider, Settings.SettingsChangeListener, Da
           // assuming we want to check RightId.SEND_BASIC_MESSAGES
           return getBasicMessageRestrictionText(chat);
         default:
-          Td.assertMessageContent_a80283cf();
+          Td.assertMessageContent_af730a78();
           throw Td.unsupported(message.content);
       }
     }

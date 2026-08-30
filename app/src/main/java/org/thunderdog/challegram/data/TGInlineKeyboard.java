@@ -587,8 +587,11 @@ public class TGInlineKeyboard {
           return ColorId.iconPositive;
         case TdApi.ButtonStyleDanger.CONSTRUCTOR:
           return ColorId.textNegative;
+        case TdApi.ButtonStyleLink.CONSTRUCTOR:
+          // Link styling not adopted yet - default look beats a crash
+          return ColorId.NONE;
         default: {
-          Td.assertButtonStyle_da99259d();
+          Td.assertButtonStyle_4f30e8d0();
           throw Td.unsupported(style);
         }
       }
@@ -970,9 +973,10 @@ public class TGInlineKeyboard {
           }
           case TdApi.InlineKeyboardButtonTypeCopyText.CONSTRUCTOR:
           case TdApi.InlineKeyboardButtonTypeWebApp.CONSTRUCTOR:
+          case TdApi.InlineKeyboardButtonTypeDisabled.CONSTRUCTOR:
             break;
           default: {
-            Td.assertInlineKeyboardButtonType_4c981aa8();
+            Td.assertInlineKeyboardButtonType_3a46e70a();
             throw Td.unsupported(type);
           }
         }
@@ -1151,9 +1155,10 @@ public class TGInlineKeyboard {
               case TdApi.InlineKeyboardButtonTypeSwitchInline.CONSTRUCTOR:
               case TdApi.InlineKeyboardButtonTypeUser.CONSTRUCTOR:
               case TdApi.InlineKeyboardButtonTypeWebApp.CONSTRUCTOR:
+              case TdApi.InlineKeyboardButtonTypeDisabled.CONSTRUCTOR:
                 break;
               default: {
-                Td.assertInlineKeyboardButtonType_4c981aa8();
+                Td.assertInlineKeyboardButtonType_3a46e70a();
                 throw Td.unsupported(type);
               }
             }
@@ -1561,8 +1566,11 @@ public class TGInlineKeyboard {
           context.context.tdlib().send(new TdApi.GetLoginUrlInfo(context.context.getChatId(), context.messageId, button.id), getLoginCallback(currentContextId, view, button, needVerify));
           break;
         }
+        case TdApi.InlineKeyboardButtonTypeDisabled.CONSTRUCTOR:
+          // Disabled button: a tap does nothing by definition
+          break;
         default: {
-          Td.assertInlineKeyboardButtonType_4c981aa8();
+          Td.assertInlineKeyboardButtonType_3a46e70a();
           throw Td.unsupported(type);
         }
       }

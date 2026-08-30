@@ -512,7 +512,7 @@ public final class TGMessageService extends TGMessageServiceImpl {
               staticResId = R.string.ActionPinnedNoText;
               break;
             default:
-              Td.assertMessageContent_a80283cf();
+              Td.assertMessageContent_af730a78();
               throw Td.unsupported(message.content);
           }
           if (format == null) {
