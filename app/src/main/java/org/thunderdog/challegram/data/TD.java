@@ -212,6 +212,7 @@ public class TD {
         false,
         false,
         false,
+        false,
         false
       );
     }
@@ -287,6 +288,7 @@ public class TD {
         false
       );
       new TdApi.ChatAdministratorRights(
+        false,
         false,
         false,
         false,

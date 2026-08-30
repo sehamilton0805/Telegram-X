@@ -423,8 +423,8 @@ public abstract class MediaPreview implements ListAnimator.Measurable {
           return new MediaPreviewSimple(tdlib, size, cornerRadius, giftedStars.sticker);
         break;
       }
-      case TdApi.MessageGiftedTon.CONSTRUCTOR: {
-        TdApi.MessageGiftedTon giftedGram = (TdApi.MessageGiftedTon) message.content;
+      case TdApi.MessageGiftedGrams.CONSTRUCTOR: {
+        TdApi.MessageGiftedGrams giftedGram = (TdApi.MessageGiftedGrams) message.content;
         if (giftedGram.sticker != null)
           return new MediaPreviewSimple(tdlib, size, cornerRadius, giftedGram.sticker);
         break;

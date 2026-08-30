@@ -73,9 +73,9 @@
 	branch = main
 [submodule "vkryl/td"]
 	path = vkryl/td
-	url = https://github.com/TGX-Android/tdlib-utils
+	url = https://github.com/sehamilton0805/tdlib-utils
 	shallow = true
-	branch = main
+	branch = fork-10.3
 [submodule "vkryl/android"]
 	path = vkryl/android
 	url = https://github.com/TGX-Android/X-Android

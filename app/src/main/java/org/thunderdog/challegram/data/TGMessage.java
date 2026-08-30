@@ -8283,7 +8283,7 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
       new TdApi.InlineKeyboardButton[] {
         new TdApi.InlineKeyboardButton(sponsoredMessage.buttonText, 0, new TdApi.ButtonStyleDefault(), type)
       }
-    });
+    }, false);
     return fakeMessage;
   }
 
@@ -8687,7 +8687,7 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
         case TdApi.MessageSuggestedPostDeclined.CONSTRUCTOR:
         case TdApi.MessageSuggestedPostPaid.CONSTRUCTOR:
         case TdApi.MessageSuggestedPostRefunded.CONSTRUCTOR:
-        case TdApi.MessageGiftedTon.CONSTRUCTOR:
+        case TdApi.MessageGiftedGrams.CONSTRUCTOR:
         case TdApi.MessagePaymentSuccessfulBot.CONSTRUCTOR:
           break;
 
