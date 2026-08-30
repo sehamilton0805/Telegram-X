@@ -43,26 +43,29 @@ import org.thunderdog.challegram.util.text.TextWrapper;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 
 import me.vkryl.android.AnimatorUtils;
 import me.vkryl.android.animator.FactorAnimator;
 import me.vkryl.core.ColorUtils;
+import me.vkryl.core.StringUtils;
 
 // Rich messages (PageBlock-based posts) rendered in document order, like the
 // official client: text runs and media segments interleave as authored. A
-// slideshow/collage becomes a swipeable carousel segment (dot indicator, own
-// pager state), a standalone photo/video an inline single-media segment.
-// Tapping text opens the full post through the native Instant View engine via
-// a synthetic instant view page
+// slideshow becomes a swipeable carousel segment (dot indicator, own pager
+// state), a collage becomes a tiled mosaic, a standalone photo/video an
+// inline single-media segment; media captions render right below their block
+// and a button row becomes a real inline keyboard. Tapping text opens the
+// full post through the native Instant View engine via a synthetic page
 public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickListener, me.vkryl.android.util.ClickHelper.Delegate {
   private static final float PAGER_MIN_FLING_DP = 400f; // dp per second
   private static final float PART_SPACING_DP = 10f;
 
   private final TdApi.RichMessage richMessage;
   private final ArrayList<TdApi.PageBlock> mediaBlocks;
-  // Global wrapper list, in document order: receiver keys, the viewer stack
-  // and auto-download all index it; parts reference ranges of it
+  // Global wrapper list, in document order: the viewer stack and
+  // auto-download index it; receiver keys are per-wrapper tdlib file ids
   private final ArrayList<MediaWrapper> wrappers = new ArrayList<>();
   private final ArrayList<Part> parts = new ArrayList<>();
   private final me.vkryl.android.util.ClickHelper clickHelper = new me.vkryl.android.util.ClickHelper(this);
@@ -81,17 +84,12 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
   }
 
   private class MediaPart extends Part implements FactorAnimator.Target {
-    final int firstIndex; // index of this part's first wrapper in the global list
     final ArrayList<MediaWrapper> pageWrappers = new ArrayList<>();
     final RectF indicatorRect = new RectF();
     int pagerWidth, pagerHeight;
     int[] cellWidths, cellHeights;
     float scrollX, snapFrom, snapTo;
     @Nullable FactorAnimator animator;
-
-    MediaPart (int firstIndex) {
-      this.firstIndex = firstIndex;
-    }
 
     int pageStride () {
       return pagerWidth + Screen.dp(6f);
@@ -128,6 +126,32 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
     public void onFactorChanged (int id, float factor, float fraction, FactorAnimator callee) {
       scrollX = snapFrom + (snapTo - snapFrom) * factor;
       invalidate();
+    }
+  }
+
+  private class MosaicPart extends Part {
+    final MosaicWrapper mosaic;
+    final ArrayList<MediaWrapper> tileWrappers = new ArrayList<>();
+
+    MosaicPart (MosaicWrapper mosaic) {
+      this.mosaic = mosaic;
+    }
+  }
+
+  private class ButtonRowPart extends Part {
+    final TGInlineKeyboard keyboard;
+    final TdApi.ReplyMarkupInlineKeyboard markup;
+
+    ButtonRowPart (TdApi.InlineButton[] buttons) {
+      TdApi.InlineKeyboardButton[] row = new TdApi.InlineKeyboardButton[buttons.length];
+      for (int i = 0; i < buttons.length; i++) {
+        TdApi.InlineButton button = buttons[i];
+        String label = TD.richTextToString(button.text);
+        row[i] = new TdApi.InlineKeyboardButton(StringUtils.isEmpty(label) ? " " : label, 0, button.style, button.type);
+      }
+      this.markup = new TdApi.ReplyMarkupInlineKeyboard(new TdApi.InlineKeyboardButton[][] {row}, false);
+      this.keyboard = new TGInlineKeyboard(TGMessageRich.this, false);
+      this.keyboard.setViewProvider(currentViews);
     }
   }
 
@@ -211,11 +235,28 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
     return null;
   }
 
+  private static @Nullable TdApi.PageBlockCaption captionOf (TdApi.PageBlock block) {
+    switch (block.getConstructor()) {
+      case TdApi.PageBlockPhoto.CONSTRUCTOR:
+        return ((TdApi.PageBlockPhoto) block).caption;
+      case TdApi.PageBlockVideo.CONSTRUCTOR:
+        return ((TdApi.PageBlockVideo) block).caption;
+      case TdApi.PageBlockAnimation.CONSTRUCTOR:
+        return ((TdApi.PageBlockAnimation) block).caption;
+      case TdApi.PageBlockCollage.CONSTRUCTOR:
+        return ((TdApi.PageBlockCollage) block).caption;
+      case TdApi.PageBlockSlideshow.CONSTRUCTOR:
+        return ((TdApi.PageBlockSlideshow) block).caption;
+    }
+    return null;
+  }
+
   // Document-order segmentation: consecutive non-media blocks accumulate into
-  // one text run; every media block (or media group - slideshow/collage)
-  // flushes the run and becomes its own segment. The traversal mirrors
-  // collectMediaBlocks exactly, so the global wrapper order matches
-  // mediaBlocks and the viewer stack mapping stays index-based
+  // one text run; every media block flushes the run and becomes its own
+  // segment - slideshow as carousel, collage as tiled mosaic, standalone
+  // media as single-page segment, button row as an inline keyboard. The
+  // media traversal mirrors collectMediaBlocks exactly, so the global
+  // wrapper order matches mediaBlocks and the viewer mapping stays intact
 
   private void buildParts () {
     ArrayList<TdApi.PageBlock> textRun = new ArrayList<>();
@@ -236,9 +277,34 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
     if (partText.text.isEmpty()) {
       return;
     }
-    TextWrapper wrapper = new TextWrapper(tdlib, partText, getTextStyleProvider(), getTextColorSet(), openParameters(), null)
+    addTextPart(partText);
+  }
+
+  private void addTextPart (TdApi.FormattedText text) {
+    TextWrapper wrapper = new TextWrapper(tdlib, text, getTextStyleProvider(), getTextColorSet(), openParameters(), null)
       .setViewProvider(currentViews);
     parts.add(new TextPart(wrapper));
+  }
+
+  private void addCaptionPart (@Nullable TdApi.PageBlockCaption caption) {
+    if (caption == null) {
+      return;
+    }
+    StringBuilder b = new StringBuilder();
+    String text = TD.richTextToString(caption.text);
+    String credit = TD.richTextToString(caption.credit);
+    if (!StringUtils.isEmpty(text) && !text.trim().isEmpty()) {
+      b.append(text.trim());
+    }
+    if (!StringUtils.isEmpty(credit) && !credit.trim().isEmpty()) {
+      if (b.length() > 0) {
+        b.append('\n');
+      }
+      b.append(credit.trim());
+    }
+    if (b.length() > 0) {
+      addTextPart(new TdApi.FormattedText(b.toString(), null));
+    }
   }
 
   private void segmentBlock (TdApi.PageBlock block, ArrayList<TdApi.PageBlock> textRun) {
@@ -246,31 +312,52 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
       case TdApi.PageBlockPhoto.CONSTRUCTOR:
         if (((TdApi.PageBlockPhoto) block).photo != null) {
           flushTextRun(textRun);
-          addMediaPart(Collections.singletonList(block));
+          addCarouselPart(Collections.singletonList(block));
+          addCaptionPart(captionOf(block));
         }
         break;
       case TdApi.PageBlockVideo.CONSTRUCTOR:
         if (((TdApi.PageBlockVideo) block).video != null) {
           flushTextRun(textRun);
-          addMediaPart(Collections.singletonList(block));
+          addCarouselPart(Collections.singletonList(block));
+          addCaptionPart(captionOf(block));
         }
         break;
       case TdApi.PageBlockAnimation.CONSTRUCTOR:
         if (((TdApi.PageBlockAnimation) block).animation != null) {
           flushTextRun(textRun);
-          addMediaPart(Collections.singletonList(block));
+          addCarouselPart(Collections.singletonList(block));
+          addCaptionPart(captionOf(block));
         }
         break;
       case TdApi.PageBlockCover.CONSTRUCTOR:
         segmentBlock(((TdApi.PageBlockCover) block).cover, textRun);
         break;
-      case TdApi.PageBlockCollage.CONSTRUCTOR:
+      case TdApi.PageBlockCollage.CONSTRUCTOR: {
+        ArrayList<TdApi.PageBlock> groupMedia = new ArrayList<>();
+        collectMediaBlocks(groupMedia, block);
+        if (!groupMedia.isEmpty()) {
+          flushTextRun(textRun);
+          addMosaicPart(groupMedia);
+          addCaptionPart(captionOf(block));
+        }
+        break;
+      }
       case TdApi.PageBlockSlideshow.CONSTRUCTOR: {
         ArrayList<TdApi.PageBlock> groupMedia = new ArrayList<>();
         collectMediaBlocks(groupMedia, block);
         if (!groupMedia.isEmpty()) {
           flushTextRun(textRun);
-          addMediaPart(groupMedia);
+          addCarouselPart(groupMedia);
+          addCaptionPart(captionOf(block));
+        }
+        break;
+      }
+      case TdApi.PageBlockButtonRow.CONSTRUCTOR: {
+        TdApi.PageBlockButtonRow buttonRow = (TdApi.PageBlockButtonRow) block;
+        if (buttonRow.buttons != null && buttonRow.buttons.length > 0) {
+          flushTextRun(textRun);
+          parts.add(new ButtonRowPart(buttonRow.buttons));
         }
         break;
       }
@@ -289,20 +376,46 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
     }
   }
 
-  private void addMediaPart (List<TdApi.PageBlock> blocks) {
-    MediaPart part = new MediaPart(wrappers.size());
+  private @Nullable MediaWrapper registerWrapper (TdApi.PageBlock mediaBlock) {
+    MediaWrapper wrapper = newMediaWrapper(mediaBlock);
+    if (wrapper == null) {
+      return null;
+    }
+    wrapper.setViewProvider(currentViews);
+    wrapper.setOnClickListener(this);
+    wrappers.add(wrapper);
+    return wrapper;
+  }
+
+  private void addCarouselPart (List<TdApi.PageBlock> blocks) {
+    MediaPart part = new MediaPart();
     for (TdApi.PageBlock mediaBlock : blocks) {
-      MediaWrapper wrapper = newMediaWrapper(mediaBlock);
+      MediaWrapper wrapper = registerWrapper(mediaBlock);
+      if (wrapper != null) {
+        wrapper.setNeedRound(true, true, true, true);
+        part.pageWrappers.add(wrapper);
+      }
+    }
+    if (!part.pageWrappers.isEmpty()) {
+      parts.add(part);
+    }
+  }
+
+  private void addMosaicPart (List<TdApi.PageBlock> blocks) {
+    MosaicPart part = null;
+    for (TdApi.PageBlock mediaBlock : blocks) {
+      MediaWrapper wrapper = registerWrapper(mediaBlock);
       if (wrapper == null) {
         continue;
       }
-      wrapper.setViewProvider(currentViews);
-      wrapper.setOnClickListener(this);
-      wrapper.setNeedRound(true, true, true, true);
-      wrappers.add(wrapper);
-      part.pageWrappers.add(wrapper);
+      if (part == null) {
+        part = new MosaicPart(new MosaicWrapper(wrapper, this));
+      } else {
+        part.mosaic.addItem(wrapper, true);
+      }
+      part.tileWrappers.add(wrapper);
     }
-    if (!part.pageWrappers.isEmpty()) {
+    if (part != null) {
       parts.add(part);
     }
   }
@@ -325,10 +438,19 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
         TextWrapper wrapper = ((TextPart) part).wrapper;
         wrapper.prepare(maxWidth);
         part.height = wrapper.getHeight();
-      } else {
+      } else if (part instanceof MediaPart) {
         MediaPart mediaPart = (MediaPart) part;
         layoutMediaPart(mediaPart, maxWidth);
         part.height = mediaPart.pagerHeight;
+      } else if (part instanceof MosaicPart) {
+        MosaicPart mosaicPart = (MosaicPart) part;
+        int maxHeight = Math.max(Screen.dp(120f), (int) (maxWidth * 1.2f));
+        mosaicPart.mosaic.build(maxWidth, maxHeight, Screen.dp(120f), Screen.dp(120f), MosaicWrapper.MODE_FIT_WIDTH, false);
+        part.height = mosaicPart.mosaic.getHeight();
+      } else if (part instanceof ButtonRowPart) {
+        ButtonRowPart buttonPart = (ButtonRowPart) part;
+        buttonPart.keyboard.set(msg.id, buttonPart.markup, maxWidth, maxWidth);
+        part.height = buttonPart.keyboard.getHeight();
       }
       y += part.height;
     }
@@ -372,8 +494,12 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
     for (Part part : parts) {
       if (part instanceof TextPart) {
         width = Math.max(width, ((TextPart) part).wrapper.getWidth());
-      } else {
+      } else if (part instanceof MediaPart) {
         width = Math.max(width, ((MediaPart) part).pagerWidth);
+      } else if (part instanceof MosaicPart) {
+        width = Math.max(width, ((MosaicPart) part).mosaic.getWidth());
+      } else if (part instanceof ButtonRowPart) {
+        width = Math.max(width, ((ButtonRowPart) part).keyboard.getWidth());
       }
     }
     return width;
@@ -399,28 +525,31 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
 
   @Override
   public void requestMediaContent (ComplexReceiver receiver, boolean invalidate, int invalidateArg) {
-    // Mirrors MosaicWrapper.requestFiles: cache receiver references on the
-    // wrappers, draw through the drawing view's own receivers
-    for (int i = 0; i < wrappers.size(); i++) {
-      MediaWrapper wrapper = wrappers.get(i);
-      DoubleImageReceiver preview = receiver.getPreviewReceiver(i);
+    // Receivers are keyed by the wrapper's tdlib file id (MosaicWrapper's own
+    // scheme), one shared keyspace for carousel, mosaic and single segments;
+    // references stay cached on the wrappers as the cross-view fallback
+    final HashSet<Long> validKeys = new HashSet<>();
+    for (MediaWrapper wrapper : wrappers) {
+      long key = wrapper.getReceiverKey();
+      validKeys.add(key);
+      DoubleImageReceiver preview = receiver.getPreviewReceiver(key);
       if (!invalidate || wrapper.showPreview()) {
         wrapper.requestPreview(preview);
       }
       wrapper.setPreviewReceiverReference(preview);
       Receiver target;
       if (wrapper.needGif()) {
-        GifReceiver gifReceiver = receiver.getGifReceiver(i);
+        GifReceiver gifReceiver = receiver.getGifReceiver(key);
         wrapper.requestGif(gifReceiver);
         target = gifReceiver;
       } else {
-        ImageReceiver imageReceiver = receiver.getImageReceiver(i);
+        ImageReceiver imageReceiver = receiver.getImageReceiver(key);
         wrapper.requestImage(imageReceiver);
         target = imageReceiver;
       }
       wrapper.setTargetReceiverReference(target);
     }
-    receiver.clearReceiversWithHigherKey(wrappers.size());
+    receiver.clearReceivers((receiverType, unused, key) -> validKeys.contains(key));
   }
 
   @Override
@@ -429,8 +558,12 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
       int top = startY + part.y;
       if (part instanceof TextPart) {
         ((TextPart) part).wrapper.draw(c, startX, startX + maxWidth, 0, top, null, 1f, view.getTextMediaReceiver());
-      } else {
+      } else if (part instanceof MediaPart) {
         drawMediaPart((MediaPart) part, view, c, startX, top, receiver);
+      } else if (part instanceof MosaicPart) {
+        ((MosaicPart) part).mosaic.draw(view, c, startX, top, receiver, false);
+      } else if (part instanceof ButtonRowPart) {
+        ((ButtonRowPart) part).keyboard.draw(view, c, startX, top);
       }
     }
   }
@@ -446,7 +579,7 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
         continue;
       }
       MediaWrapper wrapper = part.pageWrappers.get(i);
-      int receiverKey = part.firstIndex + i;
+      long receiverKey = wrapper.getReceiverKey();
       // Same cross-wiring hazard as MosaicWrapper.draw: the per-message
       // references are last-writer-wins across views, so draw through the
       // drawing view's own receivers, references as fallback
@@ -520,15 +653,35 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
         if (part instanceof MediaPart) {
           return (x >= left && x <= left + ((MediaPart) part).pagerWidth) ? part : null;
         }
+        if (part instanceof MosaicPart) {
+          return (x >= left && x <= left + ((MosaicPart) part).mosaic.getWidth()) ? part : null;
+        }
         return part;
       }
     }
     return null;
   }
 
-  private @Nullable MediaPart findMediaPartAt (float x, float y) {
+  private @Nullable MediaPart findCarouselPartAt (float x, float y) {
     Part part = findPartAt(x, y);
     return part instanceof MediaPart ? (MediaPart) part : null;
+  }
+
+  private @Nullable MediaWrapper findTappedWrapper (Part part, float x, float y) {
+    if (part instanceof MediaPart) {
+      MediaPart mediaPart = (MediaPart) part;
+      return mediaPart.pageWrappers.get(mediaPart.currentPageIndex());
+    }
+    if (part instanceof MosaicPart) {
+      MosaicPart mosaicPart = (MosaicPart) part;
+      for (MediaWrapper wrapper : mosaicPart.tileWrappers) {
+        if (x >= wrapper.getCellLeft() && x <= wrapper.getCellRight() && y >= wrapper.getCellTop() && y <= wrapper.getCellBottom()) {
+          return wrapper;
+        }
+      }
+      return mosaicPart.tileWrappers.get(0);
+    }
+    return null;
   }
 
   // Carousel gesture: claims the parent on touch-down over a pager
@@ -574,7 +727,7 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
     switch (e.getAction()) {
       case MotionEvent.ACTION_DOWN: {
         touchPart = null;
-        MediaPart part = findMediaPartAt(e.getX(), e.getY());
+        MediaPart part = findCarouselPartAt(e.getX(), e.getY());
         if (part != null && part.pageWrappers.size() > 1) {
           touchPart = part;
           pagerDragging = false;
@@ -666,6 +819,11 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
     if (pagerOnTouchEvent(view, e)) {
       return true;
     }
+    for (Part part : parts) {
+      if (part instanceof ButtonRowPart && ((ButtonRowPart) part).keyboard.onTouchEvent(view, e)) {
+        return true;
+      }
+    }
     if (super.onTouchEvent(view, e)) {
       return true;
     }
@@ -677,21 +835,25 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
     return clickHelper.onTouchEvent(view, e);
   }
 
-  // Taps: a media segment opens the viewer at its current page, a text
-  // segment opens the full post in the Instant View engine
+  // Taps: a media segment opens the viewer at the tapped item, a text
+  // segment opens the full post in the Instant View engine; button rows
+  // handle their own touches through the inline keyboard
 
   @Override
   public boolean needClickAt (View view, float x, float y) {
-    return findPartAt(x, y) != null;
+    Part part = findPartAt(x, y);
+    return part != null && !(part instanceof ButtonRowPart);
   }
 
   @Override
   public void onClickAt (View view, float x, float y) {
     Part part = findPartAt(x, y);
-    if (part instanceof MediaPart) {
-      MediaPart mediaPart = (MediaPart) part;
-      onClick(view, wrappers.get(mediaPart.firstIndex + mediaPart.currentPageIndex()));
-    } else if (part != null) {
+    if (part instanceof MediaPart || part instanceof MosaicPart) {
+      MediaWrapper wrapper = findTappedWrapper(part, x, y);
+      if (wrapper != null) {
+        onClick(view, wrapper);
+      }
+    } else if (part instanceof TextPart) {
       openFullView();
     }
   }
@@ -729,9 +891,14 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
   @Override
   public boolean performLongPress (View view, float x, float y) {
     boolean result = super.performLongPress(view, x, y);
-    MediaPart part = findMediaPartAt(x, y);
-    if (part != null) {
-      result = part.pageWrappers.get(part.currentPageIndex()).performLongPress(view) || result;
+    Part part = findPartAt(x, y);
+    if (part instanceof MediaPart || part instanceof MosaicPart) {
+      MediaWrapper wrapper = findTappedWrapper(part, x, y);
+      if (wrapper != null) {
+        result = wrapper.performLongPress(view) || result;
+      }
+    } else if (part instanceof ButtonRowPart) {
+      result = ((ButtonRowPart) part).keyboard.performLongPress(view) || result;
     }
     return result;
   }
