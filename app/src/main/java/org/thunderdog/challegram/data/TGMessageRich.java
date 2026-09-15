@@ -62,8 +62,10 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
   private static final float PAGER_MIN_FLING_DP = 400f; // dp per second
   private static final float PART_SPACING_DP = 10f;
 
-  private final TdApi.RichMessage richMessage;
-  private final ArrayList<TdApi.PageBlock> mediaBlocks;
+  // Replaced by the full version when TDLib delivered a truncated message
+  private TdApi.RichMessage richMessage;
+  private ArrayList<TdApi.PageBlock> mediaBlocks;
+  private boolean fullRequested;
   // Global wrapper list, in document order: the viewer stack and
   // auto-download index it; receiver keys are per-wrapper tdlib file ids
   private final ArrayList<MediaWrapper> wrappers = new ArrayList<>();
@@ -662,6 +664,7 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
     if (!contentInited) {
       contentInited = true;
       buildParts();
+      ensureFullRichMessage();
     }
     int y = 0;
     boolean first = true;
@@ -1093,6 +1096,61 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
     } else if (part instanceof TextPart) {
       openFullView();
     }
+  }
+
+  // TDLib delivers large rich messages truncated (isFull == false): the
+  // preview blocks arrive, the rest - e.g. a 64-button grid - only through
+  // getFullRichMessage. Fetching it on tap alone left such messages half
+  // rendered, so the full version is requested as soon as the content is
+  // first built and the parts are rebuilt in place when it lands
+
+  private void ensureFullRichMessage () {
+    if (richMessage.isFull || fullRequested) {
+      return;
+    }
+    fullRequested = true;
+    tdlib.client().send(new TdApi.GetFullRichMessage(msg.chatId, msg.id), result -> runOnUiThreadOptional(() -> {
+      if (result.getConstructor() == TdApi.RichMessage.CONSTRUCTOR) {
+        applyFullRichMessage((TdApi.RichMessage) result);
+      }
+    }));
+  }
+
+  private void applyFullRichMessage (TdApi.RichMessage full) {
+    this.richMessage = full;
+    this.mediaBlocks = collectMediaBlocks(full);
+    destroyParts();
+    dropPagerTouch();
+    contentInited = false;
+    rebuildAndUpdateContent();
+    // New wrappers need their files requested into every attached view
+    invalidateContentReceiver();
+  }
+
+  // MediaPart/MosaicPart tiles are covered by the wrappers loop (same
+  // MediaWrapper instances); TextWrapper and TGInlineKeyboard hold their own
+  // Text objects that need their own teardown, same as TGMessage.onDestroy()
+  // already does for the outer reply-markup keyboard
+  private void destroyParts () {
+    for (MediaWrapper wrapper : wrappers) {
+      wrapper.destroy();
+    }
+    wrappers.clear();
+    for (Part part : parts) {
+      if (part instanceof TextPart) {
+        ((TextPart) part).wrapper.performDestroy();
+      } else if (part instanceof ButtonRowPart) {
+        ((ButtonRowPart) part).keyboard.performDestroy();
+      }
+    }
+    parts.clear();
+  }
+
+  @Override
+  protected void onMessageContainerDestroyed () {
+    // Otherwise every wrapper/TextWrapper/keyboard this message ever built
+    // outlives it - same gap applyFullRichMessage's own rebuild had to guard
+    destroyParts();
   }
 
   private boolean openingFullView;
