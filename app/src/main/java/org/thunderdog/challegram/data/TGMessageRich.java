@@ -26,9 +26,11 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
 import org.drinkless.tdlib.TdApi;
+import org.thunderdog.challegram.R;
 import org.thunderdog.challegram.U;
 import org.thunderdog.challegram.component.chat.MessageView;
 import org.thunderdog.challegram.component.chat.MessagesManager;
+import org.thunderdog.challegram.core.Lang;
 import org.thunderdog.challegram.loader.ComplexReceiver;
 import org.thunderdog.challegram.loader.DoubleImageReceiver;
 import org.thunderdog.challegram.loader.ImageReceiver;
@@ -268,6 +270,11 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
       }
     }
     flushTextRun(textRun);
+    if (parts.isEmpty()) {
+      // Degenerate payload (blocks null/empty, or every block flattened to
+      // whitespace) - a 0x0 content bubble is worse than a placeholder
+      addTextPart(new TdApi.FormattedText(Lang.getString(R.string.UnsupportedMessage), null));
+    }
   }
 
   private void flushTextRun (ArrayList<TdApi.PageBlock> textRun) {
@@ -761,6 +768,15 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
   @Override
   public boolean needComplexReceiver () {
     return true;
+  }
+
+  // Same flattened text TD.textFromRichMessage always produced for this
+  // message - MessageView's copy-text action falls back to this for any
+  // TGMessageText the same way TD.canCopyText() can't (RichMessage isn't a
+  // case in Td.textOrCaption); mirrored here so that fallback still works
+  // now that text-only rich messages are TGMessageRich too
+  public TdApi.FormattedText getText () {
+    return TD.textFromRichMessage(richMessage);
   }
 
   @Override

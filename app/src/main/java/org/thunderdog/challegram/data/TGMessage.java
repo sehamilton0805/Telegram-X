@@ -8652,21 +8652,12 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
           return new TGMessageStory(context, msg, (TdApi.MessageStory) content);
         }
         case TdApi.MessageRichMessage.CONSTRUCTOR: {
+          // Every rich message goes through the block renderer: the old
+          // media-only gate flattened text-only posts into a plain bubble,
+          // silently dropping their button rows (a bot's 8x8 button grid
+          // rendered as two lines of text)
           TdApi.RichMessage richMessage = ((TdApi.MessageRichMessage) content).message;
-          java.util.ArrayList<TdApi.PageBlock> mediaBlocks = TGMessageRich.collectMediaBlocks(richMessage);
-          if (!mediaBlocks.isEmpty()) {
-            // Media mosaic + flattened text; the full per-block renderer is a follow-up
-            return new TGMessageRich(context, msg, richMessage, mediaBlocks);
-          }
-          // Text-only rich message: flatten into a plain text bubble
-          return new TGMessageText(context, msg, TD.textFromRichMessage(richMessage)) {
-            @Override
-            protected boolean isSupportedMessageContent (TdApi.Message message, TdApi.MessageContent messageContent) {
-              // Force MESSAGE_REPLACE_REQUIRED on edits: the flattened text must be recomputed via valueOf,
-              // and TGMessageText's own update path cannot digest MessageRichMessage content
-              return false;
-            }
-          };
+          return new TGMessageRich(context, msg, richMessage, TGMessageRich.collectMediaBlocks(richMessage));
         }
         // unsupported
         case TdApi.MessageInvoice.CONSTRUCTOR:

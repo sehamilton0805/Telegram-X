@@ -39,6 +39,7 @@ import org.thunderdog.challegram.data.TD;
 import org.thunderdog.challegram.data.TGMessage;
 import org.thunderdog.challegram.data.TGMessageBotInfo;
 import org.thunderdog.challegram.data.TGMessageLocation;
+import org.thunderdog.challegram.data.TGMessageRich;
 import org.thunderdog.challegram.data.TGMessageSticker;
 import org.thunderdog.challegram.data.TGMessageText;
 import org.thunderdog.challegram.data.TGWebPage;
@@ -1305,6 +1306,8 @@ public class MessageView extends SparseDrawableView implements Destroyable, Draw
             text = Td.textOrCaption(msg.getMessage().content);
           } else if (msg instanceof TGMessageText) {
             text = ((TGMessageText) msg).getText();
+          } else if (msg instanceof TGMessageRich) {
+            text = ((TGMessageRich) msg).getText();
           } else {
             text = null;
           }
@@ -1339,7 +1342,7 @@ public class MessageView extends SparseDrawableView implements Destroyable, Draw
         colors.append(ViewController.OptionColor.NORMAL);
       }
 
-      if (TD.canCopyText(msg.getMessage()) || (msg instanceof TGMessageText && ((TGMessageText) msg).getText().text.trim().length() > 0)) {
+      if (TD.canCopyText(msg.getMessage()) || (msg instanceof TGMessageText && ((TGMessageText) msg).getText().text.trim().length() > 0) || (msg instanceof TGMessageRich && ((TGMessageRich) msg).getText().text.trim().length() > 0)) {
         ids.append(R.id.btn_messageCopy);
         strings.append(R.string.Copy);
         icons.append(R.drawable.baseline_content_copy_24);
