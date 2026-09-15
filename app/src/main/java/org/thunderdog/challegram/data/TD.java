@@ -2664,6 +2664,14 @@ public class TD {
         }
         break;
       }
+      case TdApi.RichTextButton.CONSTRUCTOR: {
+        // Flat previews (chat list, notifications) show the button's label
+        TdApi.InlineButton button = ((TdApi.RichTextButton) richText).button;
+        if (button != null) {
+          appendRichText(b, button.text);
+        }
+        break;
+      }
       default:
         // Icons, anchors, references, math etc. - no plain-text representation
         break;

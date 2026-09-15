@@ -370,9 +370,246 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
         }
         break;
       }
-      default:
-        textRun.add(block);
+      default: {
+        // Buttons can also live inside the text itself (RichTextButton, the
+        // in-message buttons of Bot API 10.3); the flat text extractor drops
+        // them, so a text block carrying any becomes its own text / button
+        // row / text sequence instead of joining the run
+        TdApi.RichText blockText = richTextOf(block);
+        if (blockText != null && containsButton(blockText)) {
+          flushTextRun(textRun);
+          segmentRichTextWithButtons(blockText);
+        } else {
+          textRun.add(block);
+        }
         break;
+      }
+    }
+  }
+
+  private static @Nullable TdApi.RichText richTextOf (TdApi.PageBlock block) {
+    switch (block.getConstructor()) {
+      case TdApi.PageBlockParagraph.CONSTRUCTOR:
+        return ((TdApi.PageBlockParagraph) block).text;
+      case TdApi.PageBlockPreformatted.CONSTRUCTOR:
+        return ((TdApi.PageBlockPreformatted) block).text;
+      case TdApi.PageBlockTitle.CONSTRUCTOR:
+        return ((TdApi.PageBlockTitle) block).title;
+      case TdApi.PageBlockSubtitle.CONSTRUCTOR:
+        return ((TdApi.PageBlockSubtitle) block).subtitle;
+      case TdApi.PageBlockHeader.CONSTRUCTOR:
+        return ((TdApi.PageBlockHeader) block).header;
+      case TdApi.PageBlockSubheader.CONSTRUCTOR:
+        return ((TdApi.PageBlockSubheader) block).subheader;
+      case TdApi.PageBlockFooter.CONSTRUCTOR:
+        return ((TdApi.PageBlockFooter) block).footer;
+      case TdApi.PageBlockKicker.CONSTRUCTOR:
+        return ((TdApi.PageBlockKicker) block).kicker;
+    }
+    return null;
+  }
+
+  private static boolean containsButton (@Nullable TdApi.RichText richText) {
+    if (richText == null) {
+      return false;
+    }
+    switch (richText.getConstructor()) {
+      case TdApi.RichTextButton.CONSTRUCTOR:
+        return true;
+      case TdApi.RichTexts.CONSTRUCTOR: {
+        TdApi.RichText[] texts = ((TdApi.RichTexts) richText).texts;
+        if (texts != null) {
+          for (TdApi.RichText inner : texts) {
+            if (containsButton(inner)) {
+              return true;
+            }
+          }
+        }
+        return false;
+      }
+      case TdApi.RichTextBold.CONSTRUCTOR:
+        return containsButton(((TdApi.RichTextBold) richText).text);
+      case TdApi.RichTextItalic.CONSTRUCTOR:
+        return containsButton(((TdApi.RichTextItalic) richText).text);
+      case TdApi.RichTextUnderline.CONSTRUCTOR:
+        return containsButton(((TdApi.RichTextUnderline) richText).text);
+      case TdApi.RichTextStrikethrough.CONSTRUCTOR:
+        return containsButton(((TdApi.RichTextStrikethrough) richText).text);
+      case TdApi.RichTextMarked.CONSTRUCTOR:
+        return containsButton(((TdApi.RichTextMarked) richText).text);
+      case TdApi.RichTextSpoiler.CONSTRUCTOR:
+        return containsButton(((TdApi.RichTextSpoiler) richText).text);
+      // Remaining wrapper types are all "one nested RichText plus a
+      // side field" (link target, entity id, etc.) - same shape FormattedText's
+      // IV walker (parseRichText) recurses through, mirrored here so a button
+      // nested inside e.g. a link/mention/hashtag span isn't missed and left
+      // to silently vanish, same as the bug this whole path exists to fix
+      case TdApi.RichTextFixed.CONSTRUCTOR:
+        return containsButton(((TdApi.RichTextFixed) richText).text);
+      case TdApi.RichTextSubscript.CONSTRUCTOR:
+        return containsButton(((TdApi.RichTextSubscript) richText).text);
+      case TdApi.RichTextSuperscript.CONSTRUCTOR:
+        return containsButton(((TdApi.RichTextSuperscript) richText).text);
+      case TdApi.RichTextPhoneNumber.CONSTRUCTOR:
+        return containsButton(((TdApi.RichTextPhoneNumber) richText).text);
+      case TdApi.RichTextBankCardNumber.CONSTRUCTOR:
+        return containsButton(((TdApi.RichTextBankCardNumber) richText).text);
+      case TdApi.RichTextBotCommand.CONSTRUCTOR:
+        return containsButton(((TdApi.RichTextBotCommand) richText).text);
+      case TdApi.RichTextCashtag.CONSTRUCTOR:
+        return containsButton(((TdApi.RichTextCashtag) richText).text);
+      case TdApi.RichTextDateTime.CONSTRUCTOR:
+        return containsButton(((TdApi.RichTextDateTime) richText).text);
+      case TdApi.RichTextHashtag.CONSTRUCTOR:
+        return containsButton(((TdApi.RichTextHashtag) richText).text);
+      case TdApi.RichTextMention.CONSTRUCTOR:
+        return containsButton(((TdApi.RichTextMention) richText).text);
+      case TdApi.RichTextMentionName.CONSTRUCTOR:
+        return containsButton(((TdApi.RichTextMentionName) richText).text);
+      case TdApi.RichTextEmailAddress.CONSTRUCTOR:
+        return containsButton(((TdApi.RichTextEmailAddress) richText).text);
+      case TdApi.RichTextUrl.CONSTRUCTOR:
+        return containsButton(((TdApi.RichTextUrl) richText).text);
+      case TdApi.RichTextAnchorLink.CONSTRUCTOR:
+        return containsButton(((TdApi.RichTextAnchorLink) richText).text);
+      case TdApi.RichTextReferenceLink.CONSTRUCTOR:
+        return containsButton(((TdApi.RichTextReferenceLink) richText).text);
+      case TdApi.RichTextDiff.CONSTRUCTOR:
+        return containsButton(((TdApi.RichTextDiff) richText).text);
+    }
+    return false;
+  }
+
+  // Flattens a rich text into a sequence of String chunks and InlineButton
+  // items, in reading order; formatting wrappers around a button are
+  // transparent, everything else keeps its plain-text representation
+  private static void flattenRichText (@Nullable TdApi.RichText richText, List<Object> out) {
+    if (richText == null) {
+      return;
+    }
+    switch (richText.getConstructor()) {
+      case TdApi.RichTextButton.CONSTRUCTOR:
+        out.add(((TdApi.RichTextButton) richText).button);
+        break;
+      case TdApi.RichTexts.CONSTRUCTOR: {
+        TdApi.RichText[] texts = ((TdApi.RichTexts) richText).texts;
+        if (texts != null) {
+          for (TdApi.RichText inner : texts) {
+            flattenRichText(inner, out);
+          }
+        }
+        break;
+      }
+      case TdApi.RichTextBold.CONSTRUCTOR:
+        flattenRichText(((TdApi.RichTextBold) richText).text, out);
+        break;
+      case TdApi.RichTextItalic.CONSTRUCTOR:
+        flattenRichText(((TdApi.RichTextItalic) richText).text, out);
+        break;
+      case TdApi.RichTextUnderline.CONSTRUCTOR:
+        flattenRichText(((TdApi.RichTextUnderline) richText).text, out);
+        break;
+      case TdApi.RichTextStrikethrough.CONSTRUCTOR:
+        flattenRichText(((TdApi.RichTextStrikethrough) richText).text, out);
+        break;
+      case TdApi.RichTextMarked.CONSTRUCTOR:
+        flattenRichText(((TdApi.RichTextMarked) richText).text, out);
+        break;
+      case TdApi.RichTextSpoiler.CONSTRUCTOR:
+        flattenRichText(((TdApi.RichTextSpoiler) richText).text, out);
+        break;
+      // Same expanded wrapper set as containsButton above - descend rather
+      // than flatten the whole subtree to one opaque string, or a button
+      // nested this deep would be found (containsButton) but then never
+      // actually extracted as a tappable piece here
+      case TdApi.RichTextFixed.CONSTRUCTOR:
+        flattenRichText(((TdApi.RichTextFixed) richText).text, out);
+        break;
+      case TdApi.RichTextSubscript.CONSTRUCTOR:
+        flattenRichText(((TdApi.RichTextSubscript) richText).text, out);
+        break;
+      case TdApi.RichTextSuperscript.CONSTRUCTOR:
+        flattenRichText(((TdApi.RichTextSuperscript) richText).text, out);
+        break;
+      case TdApi.RichTextPhoneNumber.CONSTRUCTOR:
+        flattenRichText(((TdApi.RichTextPhoneNumber) richText).text, out);
+        break;
+      case TdApi.RichTextBankCardNumber.CONSTRUCTOR:
+        flattenRichText(((TdApi.RichTextBankCardNumber) richText).text, out);
+        break;
+      case TdApi.RichTextBotCommand.CONSTRUCTOR:
+        flattenRichText(((TdApi.RichTextBotCommand) richText).text, out);
+        break;
+      case TdApi.RichTextCashtag.CONSTRUCTOR:
+        flattenRichText(((TdApi.RichTextCashtag) richText).text, out);
+        break;
+      case TdApi.RichTextDateTime.CONSTRUCTOR:
+        flattenRichText(((TdApi.RichTextDateTime) richText).text, out);
+        break;
+      case TdApi.RichTextHashtag.CONSTRUCTOR:
+        flattenRichText(((TdApi.RichTextHashtag) richText).text, out);
+        break;
+      case TdApi.RichTextMention.CONSTRUCTOR:
+        flattenRichText(((TdApi.RichTextMention) richText).text, out);
+        break;
+      case TdApi.RichTextMentionName.CONSTRUCTOR:
+        flattenRichText(((TdApi.RichTextMentionName) richText).text, out);
+        break;
+      case TdApi.RichTextEmailAddress.CONSTRUCTOR:
+        flattenRichText(((TdApi.RichTextEmailAddress) richText).text, out);
+        break;
+      case TdApi.RichTextUrl.CONSTRUCTOR:
+        flattenRichText(((TdApi.RichTextUrl) richText).text, out);
+        break;
+      case TdApi.RichTextAnchorLink.CONSTRUCTOR:
+        flattenRichText(((TdApi.RichTextAnchorLink) richText).text, out);
+        break;
+      case TdApi.RichTextReferenceLink.CONSTRUCTOR:
+        flattenRichText(((TdApi.RichTextReferenceLink) richText).text, out);
+        break;
+      case TdApi.RichTextDiff.CONSTRUCTOR:
+        flattenRichText(((TdApi.RichTextDiff) richText).text, out);
+        break;
+      default: {
+        String text = TD.richTextToString(richText);
+        if (!StringUtils.isEmpty(text)) {
+          out.add(text);
+        }
+        break;
+      }
+    }
+  }
+
+  private void segmentRichTextWithButtons (TdApi.RichText richText) {
+    List<Object> pieces = new ArrayList<>();
+    flattenRichText(richText, pieces);
+    StringBuilder text = new StringBuilder();
+    ArrayList<TdApi.InlineButton> buttons = new ArrayList<>();
+    for (Object piece : pieces) {
+      if (piece instanceof TdApi.InlineButton) {
+        if (text.toString().trim().length() > 0) {
+          addTextPart(new TdApi.FormattedText(text.toString().trim(), null));
+        }
+        text.setLength(0);
+        buttons.add((TdApi.InlineButton) piece);
+      } else {
+        String chunk = (String) piece;
+        if (!buttons.isEmpty() && chunk.trim().isEmpty()) {
+          // whitespace between buttons keeps the row together
+          continue;
+        }
+        if (!buttons.isEmpty()) {
+          parts.add(new ButtonRowPart(buttons.toArray(new TdApi.InlineButton[0])));
+          buttons.clear();
+        }
+        text.append(chunk);
+      }
+    }
+    if (text.toString().trim().length() > 0) {
+      addTextPart(new TdApi.FormattedText(text.toString().trim(), null));
+    }
+    if (!buttons.isEmpty()) {
+      parts.add(new ButtonRowPart(buttons.toArray(new TdApi.InlineButton[0])));
     }
   }
 
