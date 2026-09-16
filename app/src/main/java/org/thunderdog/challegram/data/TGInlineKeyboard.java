@@ -136,6 +136,15 @@ public class TGInlineKeyboard {
 
   private boolean isCustom, disableCustomPadding;
 
+  // Content-embedded keyboards (rich message button rows) draw their custom
+  // emoji icons from the view's content text-media receiver; the message's
+  // own reply markup keeps the dedicated reply-markup receiver
+  private boolean useContentTextMedia;
+
+  public void setUseContentTextMedia (boolean useContentTextMedia) {
+    this.useContentTextMedia = useContentTextMedia;
+  }
+
   public void setCustom (int iconRes, String text, int maxWidth, boolean disableCustomPadding, ClickListener listener) {
     this.maxWidth = maxWidth;
     this.isCustom = true;
@@ -187,10 +196,17 @@ public class TGInlineKeyboard {
   }
 
   public void requestTextMedia (ComplexReceiver receiver) {
+    int nextKey = requestTextMedia(receiver, 0);
+    receiver.clearReceiversWithHigherKey(nextKey);
+  }
+
+  // Several keyboards can share one receiver (a rich message hosting many
+  // button rows): keys are offset per keyboard, the caller trims the tail
+  public int requestTextMedia (ComplexReceiver receiver, int keyOffset) {
     for (int i = 0; i < buttons.size(); i++) {
-      buttons.get(i).requestIconTextMedia(receiver, i);
+      buttons.get(i).requestIconTextMedia(receiver, keyOffset + i);
     }
-    receiver.clearReceiversWithHigherKey(buttons.size());
+    return keyOffset + buttons.size();
   }
 
   public void performDestroy () {
@@ -910,7 +926,7 @@ public class TGInlineKeyboard {
           }
         }
         this.iconTextColor = textColor;
-        iconText.draw(c, iconX, cy + (buttonHeight - iconHeight) / 2 + Screen.dp(1.5f), null, 1f, view.getReplyMarkupTextMediaReceiver(true));
+        iconText.draw(c, iconX, cy + (buttonHeight - iconHeight) / 2 + Screen.dp(1.5f), null, 1f, context.useContentTextMedia ? view.getTextMediaReceiver() : view.getReplyMarkupTextMediaReceiver(true));
       }
       Paints.getBoldPaint14(needFakeBold, Theme.inlineTextColor(isOutBubble));
       wrapper.draw(c, textX, cy + Screen.dp(12f + (BUTTON_TEXT_SIZE_DP - textSizeDp) / 2f), textColor, true);

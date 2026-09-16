@@ -150,11 +150,17 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
       TdApi.InlineKeyboardButton[] row = new TdApi.InlineKeyboardButton[buttons.length];
       for (int i = 0; i < buttons.length; i++) {
         TdApi.InlineButton button = buttons[i];
+        // A custom emoji in the button text becomes the button icon (the
+        // plain-text flattening drops it otherwise - icon-only buttons of a
+        // bot grid rendered blank)
+        long iconCustomEmojiId = firstCustomEmojiId(button.text);
         String label = TD.richTextToString(button.text);
-        row[i] = new TdApi.InlineKeyboardButton(StringUtils.isEmpty(label) ? " " : label, 0, button.style, button.type);
+        label = label != null ? label.trim() : "";
+        row[i] = new TdApi.InlineKeyboardButton(label.isEmpty() ? " " : label, iconCustomEmojiId, button.style, button.type);
       }
       this.markup = new TdApi.ReplyMarkupInlineKeyboard(new TdApi.InlineKeyboardButton[][] {row}, false);
       this.keyboard = new TGInlineKeyboard(TGMessageRich.this, false);
+      this.keyboard.setUseContentTextMedia(true);
       this.keyboard.setViewProvider(currentViews);
     }
   }
@@ -666,13 +672,20 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
     }
   }
 
-  @Override
-  protected void buildContent (int maxWidth) {
+  // Parts are built once, on whichever comes first: layout, or the text-media
+  // request issued at bind time (which precedes layout - without this the
+  // button rows' icons would never be requested for a freshly bound message)
+  private void ensureParts () {
     if (!contentInited) {
       contentInited = true;
       buildParts();
       ensureFullRichMessage();
     }
+  }
+
+  @Override
+  protected void buildContent (int maxWidth) {
+    ensureParts();
     int y = 0;
     boolean first = true;
     for (Part part : parts) {
@@ -1261,5 +1274,56 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
     for (MediaWrapper wrapper : wrappers) {
       wrapper.getFileProgress().downloadAutomatically(type);
     }
+  }
+
+  // The content text-media receiver carries the button rows' custom emoji
+  // icons (text parts have no entities of their own); keys are offset per
+  // keyboard so many rows can share one receiver
+
+  @Override
+  public void requestTextMedia (ComplexReceiver textMediaReceiver) {
+    ensureParts();
+    int nextKey = 0;
+    for (Part part : parts) {
+      if (part instanceof ButtonRowPart) {
+        nextKey = ((ButtonRowPart) part).keyboard.requestTextMedia(textMediaReceiver, nextKey);
+      }
+    }
+    textMediaReceiver.clearReceiversWithHigherKey(nextKey);
+  }
+
+  private static long firstCustomEmojiId (@Nullable TdApi.RichText richText) {
+    if (richText == null) {
+      return 0;
+    }
+    switch (richText.getConstructor()) {
+      case TdApi.RichTextCustomEmoji.CONSTRUCTOR:
+        return ((TdApi.RichTextCustomEmoji) richText).customEmojiId;
+      case TdApi.RichTexts.CONSTRUCTOR: {
+        TdApi.RichText[] texts = ((TdApi.RichTexts) richText).texts;
+        if (texts != null) {
+          for (TdApi.RichText inner : texts) {
+            long id = firstCustomEmojiId(inner);
+            if (id != 0) {
+              return id;
+            }
+          }
+        }
+        return 0;
+      }
+      case TdApi.RichTextBold.CONSTRUCTOR:
+        return firstCustomEmojiId(((TdApi.RichTextBold) richText).text);
+      case TdApi.RichTextItalic.CONSTRUCTOR:
+        return firstCustomEmojiId(((TdApi.RichTextItalic) richText).text);
+      case TdApi.RichTextUnderline.CONSTRUCTOR:
+        return firstCustomEmojiId(((TdApi.RichTextUnderline) richText).text);
+      case TdApi.RichTextStrikethrough.CONSTRUCTOR:
+        return firstCustomEmojiId(((TdApi.RichTextStrikethrough) richText).text);
+      case TdApi.RichTextMarked.CONSTRUCTOR:
+        return firstCustomEmojiId(((TdApi.RichTextMarked) richText).text);
+      case TdApi.RichTextSpoiler.CONSTRUCTOR:
+        return firstCustomEmojiId(((TdApi.RichTextSpoiler) richText).text);
+    }
+    return 0;
   }
 }
