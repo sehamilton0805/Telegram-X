@@ -2471,6 +2471,322 @@ public class TD {
     return new TdApi.FormattedText(b.toString().trim(), null);
   }
 
+  // Entity-aware counterpart for the rich message bubble: keeps formatting,
+  // links and custom emoji (the flat extractor above dropped custom emoji
+  // entirely - a title icon simply vanished). Offsets are UTF-16 units, the
+  // convention of TdApi.FormattedText entities
+
+  public static final class RichTextFormatter {
+    private final StringBuilder text = new StringBuilder();
+    private final java.util.ArrayList<TdApi.TextEntity> entities = new java.util.ArrayList<>();
+
+    public int length () {
+      return text.length();
+    }
+
+    public boolean isBlank () {
+      return text.toString().trim().isEmpty();
+    }
+
+    public RichTextFormatter appendPlain (@Nullable String plain) {
+      if (plain != null) {
+        text.append(plain);
+      }
+      return this;
+    }
+
+    public RichTextFormatter newLine () {
+      if (text.length() > 0 && text.charAt(text.length() - 1) != '\n') {
+        text.append('\n');
+      }
+      return this;
+    }
+
+    private void wrap (@Nullable TdApi.RichText inner, TdApi.TextEntityType type) {
+      int start = text.length();
+      append(inner);
+      if (text.length() > start) {
+        entities.add(new TdApi.TextEntity(start, text.length() - start, type));
+      }
+    }
+
+    public RichTextFormatter append (@Nullable TdApi.RichText richText) {
+      if (richText == null) {
+        return this;
+      }
+      switch (richText.getConstructor()) {
+        case TdApi.RichTextPlain.CONSTRUCTOR:
+          text.append(((TdApi.RichTextPlain) richText).text);
+          break;
+        case TdApi.RichTextBold.CONSTRUCTOR:
+          wrap(((TdApi.RichTextBold) richText).text, new TdApi.TextEntityTypeBold());
+          break;
+        case TdApi.RichTextItalic.CONSTRUCTOR:
+          wrap(((TdApi.RichTextItalic) richText).text, new TdApi.TextEntityTypeItalic());
+          break;
+        case TdApi.RichTextUnderline.CONSTRUCTOR:
+          wrap(((TdApi.RichTextUnderline) richText).text, new TdApi.TextEntityTypeUnderline());
+          break;
+        case TdApi.RichTextStrikethrough.CONSTRUCTOR:
+          wrap(((TdApi.RichTextStrikethrough) richText).text, new TdApi.TextEntityTypeStrikethrough());
+          break;
+        case TdApi.RichTextSpoiler.CONSTRUCTOR:
+          wrap(((TdApi.RichTextSpoiler) richText).text, new TdApi.TextEntityTypeSpoiler());
+          break;
+        case TdApi.RichTextFixed.CONSTRUCTOR:
+          wrap(((TdApi.RichTextFixed) richText).text, new TdApi.TextEntityTypeCode());
+          break;
+        case TdApi.RichTextUrl.CONSTRUCTOR: {
+          TdApi.RichTextUrl url = (TdApi.RichTextUrl) richText;
+          wrap(url.text, new TdApi.TextEntityTypeTextUrl(url.url));
+          break;
+        }
+        case TdApi.RichTextAnchorLink.CONSTRUCTOR: {
+          TdApi.RichTextAnchorLink link = (TdApi.RichTextAnchorLink) richText;
+          if (!StringUtils.isEmpty(link.url)) {
+            wrap(link.text, new TdApi.TextEntityTypeTextUrl(link.url));
+          } else {
+            append(link.text);
+          }
+          break;
+        }
+        case TdApi.RichTextReferenceLink.CONSTRUCTOR: {
+          TdApi.RichTextReferenceLink link = (TdApi.RichTextReferenceLink) richText;
+          if (!StringUtils.isEmpty(link.url)) {
+            wrap(link.text, new TdApi.TextEntityTypeTextUrl(link.url));
+          } else {
+            append(link.text);
+          }
+          break;
+        }
+        case TdApi.RichTextEmailAddress.CONSTRUCTOR:
+          wrap(((TdApi.RichTextEmailAddress) richText).text, new TdApi.TextEntityTypeEmailAddress());
+          break;
+        case TdApi.RichTextPhoneNumber.CONSTRUCTOR:
+          wrap(((TdApi.RichTextPhoneNumber) richText).text, new TdApi.TextEntityTypePhoneNumber());
+          break;
+        case TdApi.RichTextMention.CONSTRUCTOR:
+          wrap(((TdApi.RichTextMention) richText).text, new TdApi.TextEntityTypeMention());
+          break;
+        case TdApi.RichTextMentionName.CONSTRUCTOR: {
+          TdApi.RichTextMentionName mention = (TdApi.RichTextMentionName) richText;
+          wrap(mention.text, new TdApi.TextEntityTypeMentionName(mention.userId));
+          break;
+        }
+        case TdApi.RichTextHashtag.CONSTRUCTOR:
+          wrap(((TdApi.RichTextHashtag) richText).text, new TdApi.TextEntityTypeHashtag());
+          break;
+        case TdApi.RichTextCashtag.CONSTRUCTOR:
+          wrap(((TdApi.RichTextCashtag) richText).text, new TdApi.TextEntityTypeCashtag());
+          break;
+        case TdApi.RichTextBotCommand.CONSTRUCTOR:
+          wrap(((TdApi.RichTextBotCommand) richText).text, new TdApi.TextEntityTypeBotCommand());
+          break;
+        case TdApi.RichTextBankCardNumber.CONSTRUCTOR:
+          wrap(((TdApi.RichTextBankCardNumber) richText).text, new TdApi.TextEntityTypeBankCardNumber());
+          break;
+        case TdApi.RichTextCustomEmoji.CONSTRUCTOR: {
+          TdApi.RichTextCustomEmoji emoji = (TdApi.RichTextCustomEmoji) richText;
+          String alternative = StringUtils.isEmpty(emoji.alternativeText) ? "⬜" : emoji.alternativeText;
+          int start = text.length();
+          text.append(alternative);
+          entities.add(new TdApi.TextEntity(start, text.length() - start, new TdApi.TextEntityTypeCustomEmoji(emoji.customEmojiId)));
+          break;
+        }
+        case TdApi.RichTextMathematicalExpression.CONSTRUCTOR:
+          wrap(new TdApi.RichTextPlain(((TdApi.RichTextMathematicalExpression) richText).expression), new TdApi.TextEntityTypeCode());
+          break;
+        case TdApi.RichTextButton.CONSTRUCTOR: {
+          // Buttons are rendered as real buttons by the message; keep the
+          // label as text only where a caller flattens a whole text
+          TdApi.InlineButton button = ((TdApi.RichTextButton) richText).button;
+          if (button != null) {
+            append(button.text);
+          }
+          break;
+        }
+        // Styling without a message-entity counterpart: keep the text
+        case TdApi.RichTextSubscript.CONSTRUCTOR:
+          append(((TdApi.RichTextSubscript) richText).text);
+          break;
+        case TdApi.RichTextSuperscript.CONSTRUCTOR:
+          append(((TdApi.RichTextSuperscript) richText).text);
+          break;
+        case TdApi.RichTextMarked.CONSTRUCTOR:
+          append(((TdApi.RichTextMarked) richText).text);
+          break;
+        case TdApi.RichTextDateTime.CONSTRUCTOR:
+          append(((TdApi.RichTextDateTime) richText).text);
+          break;
+        case TdApi.RichTextReference.CONSTRUCTOR:
+          append(((TdApi.RichTextReference) richText).text);
+          break;
+        case TdApi.RichTextDiff.CONSTRUCTOR:
+          append(((TdApi.RichTextDiff) richText).text);
+          break;
+        case TdApi.RichTexts.CONSTRUCTOR: {
+          TdApi.RichText[] texts = ((TdApi.RichTexts) richText).texts;
+          if (texts != null) {
+            for (TdApi.RichText inner : texts) {
+              append(inner);
+            }
+          }
+          break;
+        }
+        default:
+          // Icons, anchors - nothing to show inline
+          break;
+      }
+      return this;
+    }
+
+    public TdApi.FormattedText build () {
+      // Drop a trailing newline; entities never cover it, offsets stay valid
+      int end = text.length();
+      while (end > 0 && text.charAt(end - 1) == '\n') {
+        end--;
+      }
+      String result = text.substring(0, end);
+      return new TdApi.FormattedText(result, entities.isEmpty() ? null : entities.toArray(new TdApi.TextEntity[0]));
+    }
+  }
+
+  public static TdApi.FormattedText formattedTextFromRichText (@Nullable TdApi.RichText richText) {
+    return new RichTextFormatter().append(richText).build();
+  }
+
+  public static TdApi.FormattedText formattedTextFromPageBlocks (java.util.List<TdApi.PageBlock> blocks) {
+    RichTextFormatter formatter = new RichTextFormatter();
+    for (TdApi.PageBlock block : blocks) {
+      appendPageBlockFormatted(formatter, block);
+    }
+    return formatter.build();
+  }
+
+  private static void appendFormattedLine (RichTextFormatter formatter, @Nullable TdApi.RichText richText, @Nullable String prefix) {
+    RichTextFormatter probe = new RichTextFormatter().append(richText);
+    if (probe.isBlank()) {
+      return;
+    }
+    formatter.newLine();
+    if (prefix != null) {
+      formatter.appendPlain(prefix);
+    }
+    formatter.append(richText);
+  }
+
+  private static void appendPageBlockFormatted (RichTextFormatter formatter, TdApi.PageBlock block) {
+    switch (block.getConstructor()) {
+      case TdApi.PageBlockTitle.CONSTRUCTOR:
+        appendFormattedLine(formatter, ((TdApi.PageBlockTitle) block).title, null);
+        break;
+      case TdApi.PageBlockSubtitle.CONSTRUCTOR:
+        appendFormattedLine(formatter, ((TdApi.PageBlockSubtitle) block).subtitle, null);
+        break;
+      case TdApi.PageBlockHeader.CONSTRUCTOR:
+        appendFormattedLine(formatter, ((TdApi.PageBlockHeader) block).header, null);
+        break;
+      case TdApi.PageBlockSubheader.CONSTRUCTOR:
+        appendFormattedLine(formatter, ((TdApi.PageBlockSubheader) block).subheader, null);
+        break;
+      case TdApi.PageBlockSectionHeading.CONSTRUCTOR:
+        appendFormattedLine(formatter, ((TdApi.PageBlockSectionHeading) block).text, null);
+        break;
+      case TdApi.PageBlockKicker.CONSTRUCTOR:
+        appendFormattedLine(formatter, ((TdApi.PageBlockKicker) block).kicker, null);
+        break;
+      case TdApi.PageBlockParagraph.CONSTRUCTOR:
+        appendFormattedLine(formatter, ((TdApi.PageBlockParagraph) block).text, null);
+        break;
+      case TdApi.PageBlockPreformatted.CONSTRUCTOR:
+        appendFormattedLine(formatter, ((TdApi.PageBlockPreformatted) block).text, null);
+        break;
+      case TdApi.PageBlockFooter.CONSTRUCTOR:
+        appendFormattedLine(formatter, ((TdApi.PageBlockFooter) block).footer, null);
+        break;
+      case TdApi.PageBlockPullQuote.CONSTRUCTOR:
+        appendFormattedLine(formatter, ((TdApi.PageBlockPullQuote) block).text, "❝ ");
+        break;
+      case TdApi.PageBlockExpandableBlockQuote.CONSTRUCTOR:
+        appendFormattedLine(formatter, ((TdApi.PageBlockExpandableBlockQuote) block).text, "❝ ");
+        break;
+      case TdApi.PageBlockBlockQuote.CONSTRUCTOR: {
+        TdApi.PageBlockBlockQuote quote = (TdApi.PageBlockBlockQuote) block;
+        if (quote.blocks != null) {
+          boolean first = true;
+          for (TdApi.PageBlock innerBlock : quote.blocks) {
+            TdApi.RichText inner = richTextOfBlock(innerBlock);
+            if (inner != null) {
+              appendFormattedLine(formatter, inner, first ? "❝ " : null);
+              first = false;
+            }
+          }
+        }
+        break;
+      }
+      case TdApi.PageBlockList.CONSTRUCTOR: {
+        TdApi.PageBlockList list = (TdApi.PageBlockList) block;
+        if (list.items != null) {
+          for (TdApi.PageBlockListItem item : list.items) {
+            if (item.blocks != null) {
+              boolean first = true;
+              for (TdApi.PageBlock innerBlock : item.blocks) {
+                TdApi.RichText inner = richTextOfBlock(innerBlock);
+                if (inner != null) {
+                  appendFormattedLine(formatter, inner, first ? "• " : null);
+                  first = false;
+                }
+              }
+            }
+          }
+        }
+        break;
+      }
+      case TdApi.PageBlockDetails.CONSTRUCTOR: {
+        TdApi.PageBlockDetails details = (TdApi.PageBlockDetails) block;
+        appendFormattedLine(formatter, details.header, null);
+        if (details.blocks != null) {
+          for (TdApi.PageBlock innerBlock : details.blocks) {
+            appendPageBlockFormatted(formatter, innerBlock);
+          }
+        }
+        break;
+      }
+      case TdApi.PageBlockCover.CONSTRUCTOR:
+        appendPageBlockFormatted(formatter, ((TdApi.PageBlockCover) block).cover);
+        break;
+      default:
+        // Dividers, anchors, tables, maps, embeds, media - not part of a text run
+        break;
+    }
+  }
+
+  private static @Nullable TdApi.RichText richTextOfBlock (TdApi.PageBlock block) {
+    switch (block.getConstructor()) {
+      case TdApi.PageBlockParagraph.CONSTRUCTOR:
+        return ((TdApi.PageBlockParagraph) block).text;
+      case TdApi.PageBlockPreformatted.CONSTRUCTOR:
+        return ((TdApi.PageBlockPreformatted) block).text;
+      case TdApi.PageBlockTitle.CONSTRUCTOR:
+        return ((TdApi.PageBlockTitle) block).title;
+      case TdApi.PageBlockSubtitle.CONSTRUCTOR:
+        return ((TdApi.PageBlockSubtitle) block).subtitle;
+      case TdApi.PageBlockHeader.CONSTRUCTOR:
+        return ((TdApi.PageBlockHeader) block).header;
+      case TdApi.PageBlockSubheader.CONSTRUCTOR:
+        return ((TdApi.PageBlockSubheader) block).subheader;
+      case TdApi.PageBlockSectionHeading.CONSTRUCTOR:
+        return ((TdApi.PageBlockSectionHeading) block).text;
+      case TdApi.PageBlockFooter.CONSTRUCTOR:
+        return ((TdApi.PageBlockFooter) block).footer;
+      case TdApi.PageBlockKicker.CONSTRUCTOR:
+        return ((TdApi.PageBlockKicker) block).kicker;
+      case TdApi.PageBlockPullQuote.CONSTRUCTOR:
+        return ((TdApi.PageBlockPullQuote) block).text;
+    }
+    return null;
+  }
+
   private static void appendLine (StringBuilder b, @Nullable String line) {
     if (line != null && !line.trim().isEmpty()) {
       if (b.length() > 0) {

@@ -287,16 +287,19 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
     if (textRun.isEmpty()) {
       return;
     }
-    TdApi.FormattedText partText = TD.textFromPageBlocks(textRun);
+    TdApi.FormattedText partText = TD.formattedTextFromPageBlocks(textRun);
     textRun.clear();
-    if (partText.text.isEmpty()) {
+    if (partText.text.trim().isEmpty()) {
       return;
     }
     addTextPart(partText);
   }
 
   private void addTextPart (TdApi.FormattedText text) {
-    TextWrapper wrapper = new TextWrapper(tdlib, text, getTextStyleProvider(), getTextColorSet(), openParameters(), null)
+    // Custom emoji in the text load asynchronously; the listener re-requests
+    // them into the view's content text-media receiver (checklist precedent)
+    TextWrapper wrapper = new TextWrapper(tdlib, text, getTextStyleProvider(), getTextColorSet(), openParameters(),
+      (textWrapper, richText, specificMedia) -> invalidateTextMediaReceiver(richText, specificMedia))
       .setViewProvider(currentViews);
     parts.add(new TextPart(wrapper));
   }
@@ -305,20 +308,13 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
     if (caption == null) {
       return;
     }
-    StringBuilder b = new StringBuilder();
-    String text = TD.richTextToString(caption.text);
-    String credit = TD.richTextToString(caption.credit);
-    if (!StringUtils.isEmpty(text) && !text.trim().isEmpty()) {
-      b.append(text.trim());
+    TD.RichTextFormatter formatter = new TD.RichTextFormatter();
+    formatter.append(caption.text);
+    if (!new TD.RichTextFormatter().append(caption.credit).isBlank()) {
+      formatter.newLine().append(caption.credit);
     }
-    if (!StringUtils.isEmpty(credit) && !credit.trim().isEmpty()) {
-      if (b.length() > 0) {
-        b.append('\n');
-      }
-      b.append(credit.trim());
-    }
-    if (b.length() > 0) {
-      addTextPart(new TdApi.FormattedText(b.toString(), null));
+    if (!formatter.isBlank()) {
+      addTextPart(formatter.build());
     }
   }
 
@@ -498,8 +494,15 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
   // Flattens a rich text into a sequence of String chunks and InlineButton
   // items, in reading order; formatting wrappers around a button are
   // transparent, everything else keeps its plain-text representation
+  // Pieces are InlineButton items and RichText subtrees (kept whole, with
+  // their formatting and custom emoji, whenever they hold no button);
+  // only a subtree that contains a button is descended into
   private static void flattenRichText (@Nullable TdApi.RichText richText, List<Object> out) {
     if (richText == null) {
+      return;
+    }
+    if (richText.getConstructor() != TdApi.RichTextButton.CONSTRUCTOR && !containsButton(richText)) {
+      out.add(richText);
       return;
     }
     switch (richText.getConstructor()) {
@@ -585,43 +588,39 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
       case TdApi.RichTextDiff.CONSTRUCTOR:
         flattenRichText(((TdApi.RichTextDiff) richText).text, out);
         break;
-      default: {
-        String text = TD.richTextToString(richText);
-        if (!StringUtils.isEmpty(text)) {
-          out.add(text);
-        }
+      default:
+        out.add(richText);
         break;
-      }
     }
   }
 
   private void segmentRichTextWithButtons (TdApi.RichText richText) {
     List<Object> pieces = new ArrayList<>();
     flattenRichText(richText, pieces);
-    StringBuilder text = new StringBuilder();
+    TD.RichTextFormatter text = new TD.RichTextFormatter();
     ArrayList<TdApi.InlineButton> buttons = new ArrayList<>();
     for (Object piece : pieces) {
       if (piece instanceof TdApi.InlineButton) {
-        if (text.toString().trim().length() > 0) {
-          addTextPart(new TdApi.FormattedText(text.toString().trim(), null));
+        if (!text.isBlank()) {
+          addTextPart(text.build());
         }
-        text.setLength(0);
+        text = new TD.RichTextFormatter();
         buttons.add((TdApi.InlineButton) piece);
       } else {
-        String chunk = (String) piece;
-        if (!buttons.isEmpty() && chunk.trim().isEmpty()) {
-          // whitespace between buttons keeps the row together
-          continue;
-        }
+        TdApi.RichText chunk = (TdApi.RichText) piece;
         if (!buttons.isEmpty()) {
+          if (new TD.RichTextFormatter().append(chunk).isBlank()) {
+            // whitespace between buttons keeps the row together
+            continue;
+          }
           parts.add(new ButtonRowPart(buttons.toArray(new TdApi.InlineButton[0])));
           buttons.clear();
         }
         text.append(chunk);
       }
     }
-    if (text.toString().trim().length() > 0) {
-      addTextPart(new TdApi.FormattedText(text.toString().trim(), null));
+    if (!text.isBlank()) {
+      addTextPart(text.build());
     }
     if (!buttons.isEmpty()) {
       parts.add(new ButtonRowPart(buttons.toArray(new TdApi.InlineButton[0])));
@@ -1280,13 +1279,19 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
   // icons (text parts have no entities of their own); keys are offset per
   // keyboard so many rows can share one receiver
 
+  // Key budget per text part: its custom emoji occupy [nextKey, nextKey + stride)
+  private static final long TEXT_MEDIA_KEY_STRIDE = 1024;
+
   @Override
   public void requestTextMedia (ComplexReceiver textMediaReceiver) {
     ensureParts();
-    int nextKey = 0;
+    long nextKey = 0;
     for (Part part : parts) {
       if (part instanceof ButtonRowPart) {
-        nextKey = ((ButtonRowPart) part).keyboard.requestTextMedia(textMediaReceiver, nextKey);
+        nextKey = ((ButtonRowPart) part).keyboard.requestTextMedia(textMediaReceiver, (int) nextKey);
+      } else if (part instanceof TextPart) {
+        ((TextPart) part).wrapper.requestMedia(textMediaReceiver, nextKey, TEXT_MEDIA_KEY_STRIDE);
+        nextKey += TEXT_MEDIA_KEY_STRIDE;
       }
     }
     textMediaReceiver.clearReceiversWithHigherKey(nextKey);
