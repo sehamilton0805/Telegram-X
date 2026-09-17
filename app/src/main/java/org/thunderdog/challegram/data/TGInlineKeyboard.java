@@ -61,6 +61,7 @@ import org.thunderdog.challegram.util.DrawableProvider;
 import org.thunderdog.challegram.util.EmojiStatusHelper;
 import org.thunderdog.challegram.util.EmojiString;
 import org.thunderdog.challegram.util.text.Text;
+import org.thunderdog.challegram.util.text.TextMedia;
 import org.thunderdog.challegram.widget.CheckBoxView;
 import org.thunderdog.challegram.widget.ProgressComponent;
 
@@ -115,7 +116,7 @@ public class TGInlineKeyboard {
         button.performDestroy();
       }
       buttons.clear();
-      parent.invalidateReplyMarkupTextMedia();
+      invalidateIconTextMedia();
     }
   }
 
@@ -131,7 +132,7 @@ public class TGInlineKeyboard {
     int realMaxWidth = Math.max(contentWidth, findMaxColumnCount(keyboard.rows) * getSmallestDesiredWidth());
     this.maxWidth = Math.min(contentMaxWidth, Math.max(context.useBubbles() ? Screen.dp(40f) : Screen.dp(200f), realMaxWidth));
     buildLayout(maxWidth, contentMaxWidth);
-    parent.invalidateReplyMarkupTextMedia();
+    invalidateIconTextMedia();
   }
 
   private boolean isCustom, disableCustomPadding;
@@ -143,6 +144,25 @@ public class TGInlineKeyboard {
 
   public void setUseContentTextMedia (boolean useContentTextMedia) {
     this.useContentTextMedia = useContentTextMedia;
+  }
+
+  // Icon media of this keyboard must be (re)requested into the receiver it
+  // is drawn from: the async custom-emoji load callback that pointed at the
+  // reply-markup receiver left content-embedded icons as placeholders forever
+  private void invalidateIconTextMedia () {
+    if (useContentTextMedia) {
+      parent.invalidateTextMediaReceiver();
+    } else {
+      parent.invalidateReplyMarkupTextMedia();
+    }
+  }
+
+  private void invalidateIconTextMedia (@NonNull Text text, @Nullable TextMedia specificMedia) {
+    if (useContentTextMedia) {
+      parent.invalidateTextMediaReceiver(text, specificMedia);
+    } else {
+      parent.invalidateReplyMarkupTextMedia(text, specificMedia);
+    }
   }
 
   public void setCustom (int iconRes, String text, int maxWidth, boolean disableCustomPadding, ClickListener listener) {
@@ -562,7 +582,7 @@ public class TGInlineKeyboard {
       this.iconSizeDp = sizeDp;
       TdApi.TextEntity iconEntity = new TdApi.TextEntity(0, 1, new TdApi.TextEntityTypeCustomEmoji(customEmojiId));
       TdApi.FormattedText formattedText = new TdApi.FormattedText(EmojiStatusHelper.EMOJI, new TdApi.TextEntity[] {iconEntity});
-      return new Text.Builder(parent.tdlib(), formattedText, null, Screen.dp(1000f), Paints.robotoStyleProvider(sizeDp), () -> iconTextColor, (text, specificMedia) -> parent.invalidateReplyMarkupTextMedia(text, specificMedia))
+      return new Text.Builder(parent.tdlib(), formattedText, null, Screen.dp(1000f), Paints.robotoStyleProvider(sizeDp), () -> iconTextColor, (text, specificMedia) -> context.invalidateIconTextMedia(text, specificMedia))
         .singleLine()
         .build();
     }
