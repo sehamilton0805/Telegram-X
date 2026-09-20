@@ -1185,12 +1185,24 @@ public class Text implements Runnable, Emoji.CountLimiter, CounterTextPart, List
 
   private int emojiStart;
   private int emojiSize;
+  private int customEmojiSize;
   private TextEntity emojiEntity;
+
+  // Line step / custom emoji square, matching the official desktop client
+  private static final float CUSTOM_EMOJI_LINE_FRACTION = 0.9f;
 
   private void processTextOrEmoji (final String in, final int start, final int end, final ArrayList<TextPart> out, final Emoji.Callback emojiCallback, final @Nullable TextEntity entity) {
     TextPaint paint = getTextPaint(entity);
     Paint.FontMetricsInt fontMetricsInt = Paints.getFontMetricsInt(paint);
     emojiSize = Math.abs(fontMetricsInt.descent - fontMetricsInt.ascent) + Screen.dp(2f);
+    // Custom emoji follow the official desktop geometry: the square is 1/0.9
+    // of the line step and overflows it evenly above and below, so tile art
+    // with 5% transparent top/bottom margins meets edge to edge across rows
+    // (Roboto has no line gap, so plain emojiSize equals the line step and
+    // the margins would show as a background stripe between rows). Rounded
+    // up: an extra pixel of overlap lands on the transparent margin, a pixel
+    // of gap shows as a line
+    customEmojiSize = (int) Math.ceil(getLineHeight() / CUSTOM_EMOJI_LINE_FRACTION);
 
     if (in.endsWith("wtftest")) {
       in.toString();
@@ -1268,8 +1280,19 @@ public class Text implements Runnable, Emoji.CountLimiter, CounterTextPart, List
   private void processEmoji (String in, int start, int end, @Nullable EmojiInfo info, ArrayList<TextPart> out, @Nullable TextEntity entity) {
     lastPart = null;
 
+    final boolean isCustomEmoji = entity != null && entity.tdlib != null && entity.isCustomEmoji();
+    // Custom emoji advance by their own (larger) square; the extra height is
+    // not reported to the line, so the line step stays the text step and the
+    // square overflows it symmetrically (drawn centered in TextPart). Gated to
+    // multi-line text: the desktop-matching overflow is for paragraph tile art,
+    // not compact single-line chrome (button icons, previews), where a square
+    // ~11% larger than the line would spill past tight padding/pill bounds -
+    // Text.getHeight()/iconHeight callers still see the unchanged line step
+    // since the extra height is never reported, so this stays size-only
+    final int size = isCustomEmoji && maxLineCount != 1 ? customEmojiSize : emojiSize;
+
     final int maxWidth = getLineMaxWidth(getLineCount(), currentY);
-    if (currentX + emojiSize > maxWidth) {
+    if (currentX + size > maxWidth) {
       newLineOrEllipsis(out, in);
     }
 
@@ -1279,19 +1302,19 @@ public class Text implements Runnable, Emoji.CountLimiter, CounterTextPart, List
 
     part = new TextPart(this, in, start, end, getLineCount(), paragraphCount);
     part.setXY(currentX, currentY);
-    part.setWidth(emojiSize);
+    part.setWidth(size);
     part.setEntity(entity);
     part.setBidiEntity(getBidiEntity(start));
     part.setEmoji(info);
-    if (entity != null && entity.tdlib != null && entity.isCustomEmoji()) {
-      part.attachToMedia(newOrExistingMedia(TextMedia.keyForEmoji(entity.getCustomEmojiId(), emojiSize), start, end, (keyId, id) ->
-        new TextMedia(this, entity.tdlib, keyId, id, emojiSize, entity.getCustomEmojiId())
+    if (isCustomEmoji) {
+      part.attachToMedia(newOrExistingMedia(TextMedia.keyForEmoji(entity.getCustomEmojiId(), size), start, end, (keyId, id) ->
+        new TextMedia(this, entity.tdlib, keyId, id, size, entity.getCustomEmojiId())
       ));
     }
 
     out.add(part);
 
-    currentX += emojiSize;
+    currentX += size;
   }
 
   // Utils

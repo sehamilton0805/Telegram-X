@@ -360,8 +360,16 @@ public class TextPart {
         return;
       }
       final long displayMediaKey = media.getDisplayMediaKey();
-      final int iconY = y + textPaint.baselineShift - (isCustomEmoji() ? Screen.dp(1.5f) : 0);
       final int height = this.height == -1 ? (int) width : this.height;
+      // A custom emoji square is larger than the line step (desktop
+      // geometry, see Text.customEmojiSize): center it on the line so the
+      // overflow splits evenly above and below into the tile's transparent
+      // margins. Integer division rounds the offset down, biasing the
+      // overlap upward onto the previous row's margin rather than opening
+      // a gap below
+      final int iconY = isCustomEmoji()
+        ? y + textPaint.baselineShift - (height - source.getLineHeight(getLineIndex())) / 2
+        : y + textPaint.baselineShift;
       if (receiver != null && displayMediaKey != -1) {
         final boolean needTranslate = media.attachedToParts.size() > 1;
         final boolean isFirst = needTranslate && media.attachedToParts.get(0) == this;
