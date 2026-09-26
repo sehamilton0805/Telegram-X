@@ -142,6 +142,7 @@ import org.thunderdog.challegram.data.TGMessage;
 import org.thunderdog.challegram.data.TGMessageBotInfo;
 import org.thunderdog.challegram.data.TGMessageLocation;
 import org.thunderdog.challegram.data.TGMessageMedia;
+import org.thunderdog.challegram.data.TGMessageService;
 import org.thunderdog.challegram.data.TGMessageSticker;
 import org.thunderdog.challegram.data.TGSwitchInline;
 import org.thunderdog.challegram.data.TGUser;
@@ -154,6 +155,7 @@ import org.thunderdog.challegram.helper.LinkPreview;
 import org.thunderdog.challegram.helper.LiveLocationHelper;
 import org.thunderdog.challegram.loader.ImageFile;
 import org.thunderdog.challegram.loader.ImageGalleryFile;
+import org.thunderdog.challegram.loader.ImageFileLocal;
 import org.thunderdog.challegram.loader.ImageReader;
 import org.thunderdog.challegram.loader.ImageStrictCache;
 import org.thunderdog.challegram.mediaview.MediaSelectDelegate;
@@ -875,6 +877,9 @@ public class MessagesController extends ViewController<MessagesController.Argume
     wallpaperView = new WallpaperView(context, manager, tdlib);
     if (previewMode == PREVIEW_MODE_WALLPAPER_OBJECT) {
       wallpaperView.initWithCustomWallpaper(new TGBackground(tdlib, getArguments().wallpaperObject));
+    } else if (previewMode == PREVIEW_MODE_CHAT_WALLPAPER) {
+      TGBackground current = currentChatWallpaper();
+      wallpaperView.initWithCustomWallpaper(current != null ? current : tdlib.settings().getWallpaper(Theme.getWallpaperIdentifier()));
     } else {
       wallpaperView.initWithSetupMode(previewMode == PREVIEW_MODE_WALLPAPER);
     }
@@ -1436,10 +1441,17 @@ public class MessagesController extends ViewController<MessagesController.Argume
 
     if (inPreviewMode) {
       switch (previewMode) {
-        case PREVIEW_MODE_WALLPAPER: {
+        case PREVIEW_MODE_WALLPAPER:
+        case PREVIEW_MODE_CHAT_WALLPAPER: {
           wallpapersList = new WallpaperRecyclerView(context);
           wallpapersList.setLayoutManager(new LinearLayoutManager(context, LinearLayoutManager.HORIZONTAL, Lang.rtl()));
-          wallpapersList.setAdapter(new WallpaperAdapter(this, ThemeManager.instance().currentTheme(false).getId()));
+          if (previewMode == PREVIEW_MODE_CHAT_WALLPAPER) {
+            pickedChatWallpaper = currentChatWallpaper();
+            chatWallpaperAdapter = new WallpaperAdapter(this, ThemeManager.instance().currentTheme(false).getId(), pickedChatWallpaper, this::onChatWallpaperPicked);
+            wallpapersList.setAdapter(chatWallpaperAdapter);
+          } else {
+            wallpapersList.setAdapter(new WallpaperAdapter(this, ThemeManager.instance().currentTheme(false).getId()));
+          }
           wallpapersList.addItemDecoration(new RecyclerView.ItemDecoration() {
             @Override
             public void getItemOffsets (Rect outRect, View view, RecyclerView parent, RecyclerView.State state) {
@@ -1541,7 +1553,7 @@ public class MessagesController extends ViewController<MessagesController.Argume
       bottomWrap.addView(inputView);
     }
 
-    if (inWallpaperMode()) {
+    if (inWallpaperMode() && !inChatWallpaperMode()) {
       TdApi.Background currentBackgroundObj = getArgumentsStrict().wallpaperObject;
       TGBackground currentBackground = tdlib.settings().getWallpaper(Theme.getWallpaperIdentifier());
       boolean shouldUseParams = !inWallpaperPreviewMode() || currentBackgroundObj != null && currentBackgroundObj.type.getConstructor() == TdApi.BackgroundTypeWallpaper.CONSTRUCTOR;
@@ -2220,6 +2232,14 @@ public class MessagesController extends ViewController<MessagesController.Argume
         ((TdApi.BackgroundTypeWallpaper) newBackgroundType).isBlurred = backgroundParamsView.isBlurred();
       }
 
+      long wallpaperChatId = getArgumentsStrict().wallpaperChatId;
+      if (wallpaperChatId != 0) {
+        askChatWallpaperScope(wallpaperChatId, onlyForSelf ->
+          sendSetChatBackground(wallpaperChatId, new TdApi.InputBackgroundRemote(getArgumentsStrict().wallpaperObject.id), newBackgroundType, onlyForSelf)
+        );
+        return;
+      }
+
       tdlib().send(new TdApi.SetDefaultBackground(
         new TdApi.InputBackgroundRemote(getArgumentsStrict().wallpaperObject.id),
         newBackgroundType,
@@ -2451,6 +2471,16 @@ public class MessagesController extends ViewController<MessagesController.Argume
       });
     } else if (id == R.id.btn_reportChat) {
       reportChat(null, null);
+    } else if (id == R.id.btn_chatWallpaper) {
+      openChatWallpaperPicker();
+    } else if (id == R.id.btn_removeChatWallpaper) {
+      if (chat != null) {
+        tdlib.send(new TdApi.DeleteChatBackground(chat.id, false), (ok, error) -> runOnUiThreadOptional(() -> {
+          if (error != null) {
+            UI.showError(error);
+          }
+        }));
+      }
     } else if (id == R.id.btn_search) {
       if (manager.isReadyToSearch()) {
         openSearchMode();
@@ -2481,10 +2511,16 @@ public class MessagesController extends ViewController<MessagesController.Argume
   public static final int PREVIEW_MODE_EVENT_LOG = 3;
   public static final int PREVIEW_MODE_SEARCH = 4;
   public static final int PREVIEW_MODE_WALLPAPER_OBJECT = 5;
+  // Per-chat wallpaper picker: same list as PREVIEW_MODE_WALLPAPER, but a tap
+  // only previews; the header check mark sends SetChatBackground
+  public static final int PREVIEW_MODE_CHAT_WALLPAPER = 6;
 
   @Override
   public boolean saveInstanceState (Bundle outState, String keyPrefix) {
     Arguments args = getArguments();
+    if (args != null && args.constructor == 2 && args.previewMode == PREVIEW_MODE_CHAT_WALLPAPER) {
+      return false; // needs wallpaperChatId; the picker is not worth restoring
+    }
     if (args != null) {
       super.saveInstanceState(outState, keyPrefix);
       outState.putInt(keyPrefix + "type", args.constructor);
@@ -2599,6 +2635,9 @@ public class MessagesController extends ViewController<MessagesController.Argume
     public long eventLogUserId;
 
     public @Nullable TdApi.Background wallpaperObject;
+    // PREVIEW_MODE_WALLPAPER_OBJECT: when non-zero, "apply" sets the wallpaper
+    // for this chat (SetChatBackground) instead of the global one
+    public long wallpaperChatId;
 
     public Arguments (Tdlib tdlib, TdApi.ChatList chatList, TdApi.Chat chat, @Nullable ThreadInfo messageThread, @Nullable TdApi.MessageTopic messageTopicId, TdApi.SearchMessagesFilter filter) {
       this.constructor = 0;
@@ -2731,6 +2770,11 @@ public class MessagesController extends ViewController<MessagesController.Argume
       return this;
     }
 
+    public Arguments setWallpaperChatId (long wallpaperChatId) {
+      this.wallpaperChatId = wallpaperChatId;
+      return this;
+    }
+
     public Arguments voiceChatInvitation (TdApi.InternalLinkTypeVideoChat voiceChatInvitation) {
       this.videoChatOrLiveStreamInvitation = voiceChatInvitation;
       return this;
@@ -2770,7 +2814,11 @@ public class MessagesController extends ViewController<MessagesController.Argume
   private boolean openKeyboard;
 
   public boolean inWallpaperMode () {
-    return inPreviewMode && (previewMode == PREVIEW_MODE_WALLPAPER || previewMode == PREVIEW_MODE_WALLPAPER_OBJECT);
+    return inPreviewMode && (previewMode == PREVIEW_MODE_WALLPAPER || previewMode == PREVIEW_MODE_WALLPAPER_OBJECT || previewMode == PREVIEW_MODE_CHAT_WALLPAPER);
+  }
+
+  public boolean inChatWallpaperMode () {
+    return inPreviewMode && previewMode == PREVIEW_MODE_CHAT_WALLPAPER;
   }
 
   public boolean inWallpaperPreviewMode () {
@@ -2960,6 +3008,7 @@ public class MessagesController extends ViewController<MessagesController.Argume
     }
     TdApi.Chat headerChat = messageThread != null ? tdlib.chatSync(messageThread.getContextChatId()) : null;
     headerCell.setChat(tdlib, headerChat != null ? headerChat : chat, messageThread);
+    applyChatBackground(chat != null ? chat.background : null, false);
 
     if (inPreviewMode) {
       switch (previewMode) {
@@ -3605,6 +3654,8 @@ public class MessagesController extends ViewController<MessagesController.Argume
           return R.id.controller_wallpaper;
         case PREVIEW_MODE_WALLPAPER_OBJECT:
           return R.id.controller_wallpaper_preview;
+        case PREVIEW_MODE_CHAT_WALLPAPER:
+          return R.id.controller_chatWallpaper;
         case PREVIEW_MODE_EVENT_LOG:
           return R.id.controller_eventLog;
         case PREVIEW_MODE_SEARCH:
@@ -3694,6 +3745,8 @@ public class MessagesController extends ViewController<MessagesController.Argume
         return R.id.menu_more;
       case PREVIEW_MODE_WALLPAPER:
         return R.id.menu_gallery;
+      case PREVIEW_MODE_CHAT_WALLPAPER:
+        return R.id.menu_chatWallpaper;
     }
     if (getChatId() != 0) {
       if (isSelfChat()) {
@@ -3719,6 +3772,8 @@ public class MessagesController extends ViewController<MessagesController.Argume
         return Lang.getString(R.string.Wallpaper);
       case PREVIEW_MODE_WALLPAPER_OBJECT:
         return Lang.getString(R.string.ChatBackgroundPreview);
+      case PREVIEW_MODE_CHAT_WALLPAPER:
+        return Lang.getString(R.string.ChatWallpaper);
       case PREVIEW_MODE_FONT_SIZE:
         return Lang.getString(R.string.TextSize);
       default:
@@ -3766,6 +3821,9 @@ public class MessagesController extends ViewController<MessagesController.Argume
       header.addMoreButton(menu, this);
     } else if (id == R.id.menu_gallery) {
       header.addButton(menu, R.id.menu_btn_gallery, R.drawable.baseline_image_24, getHeaderIconColorId(), this, Screen.dp(52f));
+    } else if (id == R.id.menu_chatWallpaper) {
+      header.addButton(menu, R.id.menu_btn_gallery, R.drawable.baseline_image_24, getHeaderIconColorId(), this, Screen.dp(52f));
+      header.addDoneButton(menu, this);
     } else if (id == R.id.menu_share) {
       header.addButton(menu, R.id.menu_btn_share, R.drawable.baseline_share_arrow_24, getHeaderIconColorId(), this, Screen.dp(52f));
     } else if (id == R.id.menu_clear) {
@@ -3912,6 +3970,10 @@ public class MessagesController extends ViewController<MessagesController.Argume
       }
     } else if (id == R.id.menu_btn_gallery) {
       Intents.openGallery(context, false);
+    } else if (id == R.id.menu_btn_done) {
+      if (inChatWallpaperMode()) {
+        applyPickedChatWallpaper();
+      }
     } else if (id == R.id.menu_btn_clear) {
       if (isEventLog()) {
         clearSearchInput();
@@ -4505,7 +4567,7 @@ public class MessagesController extends ViewController<MessagesController.Argume
     if (backgroundParamsView != null) {
       backgroundParamsView.performDestroy();
 
-      if (inWallpaperMode() && !inWallpaperPreviewMode()) {
+      if (inPreviewMode && previewMode == PREVIEW_MODE_WALLPAPER) {
         TGBackground background = tdlib.settings().getWallpaper(Theme.getWallpaperIdentifier());
         if (background != null && background.isWallpaper()) {
           tdlib.settings().setWallpaper(TGBackground.newBlurredWallpaper(tdlib, background, backgroundParamsView.isBlurred()), true, Theme.getWallpaperIdentifier());
@@ -4675,6 +4737,14 @@ public class MessagesController extends ViewController<MessagesController.Argume
     if (tdlib.canSetPasscode(chat)) {
       ids.append(R.id.btn_setPasscode);
       strings.append(R.string.PasscodeTitle);
+    }
+    if (canSetChatWallpaper()) {
+      ids.append(R.id.btn_chatWallpaper);
+      strings.append(R.string.ChatWallpaper);
+      if (chat.background != null) {
+        ids.append(R.id.btn_removeChatWallpaper);
+        strings.append(R.string.ChatWallpaperRemove);
+      }
     }
     tdlib.ui().addDeleteChatOptions(getChatId(), ids, strings, !tdlib.isChannel(chat.id), false);
 
@@ -6158,7 +6228,8 @@ public class MessagesController extends ViewController<MessagesController.Argume
         break;
       }
       case BOTTOM_ACTION_APPLY_WALLPAPER: {
-        bottomBar.setAction(R.id.btn_applyWallpaper, Lang.getString(R.string.ChatBackgroundApply), R.drawable.baseline_warning_24, animateButtonContent);
+        boolean forChat = getArguments() != null && getArguments().wallpaperChatId != 0;
+        bottomBar.setAction(R.id.btn_applyWallpaper, Lang.getString(forChat ? R.string.ChatWallpaperApply : R.string.ChatBackgroundApply), R.drawable.baseline_warning_24, animateButtonContent);
         bottomBar.clearPreviewChat();
         break;
       }
@@ -10451,6 +10522,14 @@ public class MessagesController extends ViewController<MessagesController.Argume
             tdlib.settings().setWallpaper(new TGBackground(tdlib, imagePath), true, Theme.getWallpaperIdentifier());
             return;
           }
+          if (previewMode == PREVIEW_MODE_CHAT_WALLPAPER && !StringUtils.isEmpty(imagePath)) {
+            TGBackground wallpaper = new TGBackground(tdlib, imagePath);
+            if (chatWallpaperAdapter != null) {
+              chatWallpaperAdapter.selectWallpaper(wallpaper);
+            }
+            onChatWallpaperPicked(wallpaper);
+            return;
+          }
           return;
         }
 
@@ -11064,6 +11143,173 @@ public class MessagesController extends ViewController<MessagesController.Argume
     runOnUiThreadOptional(() -> {
       if (getHeaderChatId() == chatId) {
         headerCell.setTitle(title);
+      }
+    });
+  }
+
+  // Chat wallpaper (TdApi.Chat.background)
+
+  private WallpaperAdapter chatWallpaperAdapter;
+  private @Nullable TGBackground pickedChatWallpaper;
+
+  /**
+   * TDLib: SetChatBackground works in private and secret chats with non-deleted
+   * users, and in groups/channels with canChangeInfo and enough boosts (the
+   * server reports the boost requirement as an error).
+   */
+  private boolean canSetChatWallpaper () {
+    if (chat == null || inPreviewMode || tdlib.isSelfChat(chat.id) || tdlib.isBotChat(chat.id)) {
+      return false;
+    }
+    if (ChatId.isUserChat(chat.id) || ChatId.isSecret(chat.id)) {
+      TdApi.User user = tdlib.chatUser(chat);
+      return user != null && user.type.getConstructor() != TdApi.UserTypeDeleted.CONSTRUCTOR;
+    }
+    return tdlib.canChangeInfo(chat);
+  }
+
+  private void openChatWallpaperPicker () {
+    if (chat == null) {
+      return;
+    }
+    MessagesController c = new MessagesController(context, tdlib);
+    c.setArguments(new Arguments(PREVIEW_MODE_CHAT_WALLPAPER, null, null).setWallpaperChatId(chat.id));
+    navigateTo(c);
+  }
+
+  private @Nullable TGBackground currentChatWallpaper () {
+    long chatId = getArguments() != null ? getArguments().wallpaperChatId : 0;
+    TdApi.Chat targetChat = chatId != 0 ? tdlib.chat(chatId) : null;
+    TdApi.ChatBackground background = targetChat != null ? targetChat.background : null;
+    return background != null && background.background != null ? new TGBackground(tdlib, background.background) : null;
+  }
+
+  private void onChatWallpaperPicked (@NonNull TGBackground wallpaper) {
+    pickedChatWallpaper = wallpaper;
+    if (wallpaperView != null) {
+      wallpaperView.showWallpaper(wallpaper, true);
+    }
+  }
+
+  private void applyPickedChatWallpaper () {
+    long chatId = getArgumentsStrict().wallpaperChatId;
+    TGBackground wallpaper = pickedChatWallpaper;
+    if (chatId == 0 || wallpaper == null) {
+      UI.showToast(R.string.ChatWallpaperPick, Toast.LENGTH_SHORT);
+      return;
+    }
+    if (wallpaper.isCustom()) {
+      // A local picture: TDLib accepts only JPEG for wallpapers
+      prepareChatWallpaperFile(wallpaper.getCustomPath(), jpegPath -> {
+        if (StringUtils.isEmpty(jpegPath)) {
+          UI.showToast(R.string.ChatWallpaperFileError, Toast.LENGTH_SHORT);
+          return;
+        }
+        TdApi.InputBackground input = new TdApi.InputBackgroundLocal(new TdApi.InputFileLocal(jpegPath));
+        TdApi.BackgroundType type = new TdApi.BackgroundTypeWallpaper(wallpaper.isBlurred(), false);
+        askChatWallpaperScope(chatId, onlyForSelf -> sendSetChatBackground(chatId, input, type, onlyForSelf));
+      });
+    } else if (wallpaper.isFill()) {
+      // Filled backgrounds are described by their type alone
+      askChatWallpaperScope(chatId, onlyForSelf -> sendSetChatBackground(chatId, null, wallpaper.getType(), onlyForSelf));
+    } else if (wallpaper.getId() != 0) {
+      askChatWallpaperScope(chatId, onlyForSelf -> sendSetChatBackground(chatId, new TdApi.InputBackgroundRemote(wallpaper.getId()), wallpaper.getType(), onlyForSelf));
+    } else if (!StringUtils.isEmpty(wallpaper.getName())) {
+      // Legacy/built-in entries carry no id: resolve it by name first
+      tdlib.send(new TdApi.SearchBackground(wallpaper.getName()), (background, error) -> runOnUiThreadOptional(() -> {
+        if (error != null) {
+          UI.showError(error);
+          return;
+        }
+        askChatWallpaperScope(chatId, onlyForSelf -> sendSetChatBackground(chatId, new TdApi.InputBackgroundRemote(background.id), wallpaper.getType() != null ? wallpaper.getType() : background.type, onlyForSelf));
+      }));
+    } else {
+      UI.showToast(R.string.ChatWallpaperPick, Toast.LENGTH_SHORT);
+    }
+  }
+
+  /**
+   * In private chats a Premium user may set the wallpaper for both sides;
+   * otherwise it is set only for self. In groups it is always for everyone.
+   */
+  private void askChatWallpaperScope (long chatId, RunnableBool after) {
+    if (!ChatId.isUserChat(chatId) && !ChatId.isSecret(chatId)) {
+      after.runWithBool(false);
+      return;
+    }
+    if (!tdlib.hasPremium()) {
+      after.runWithBool(true);
+      return;
+    }
+    showOptions(
+      new int[] {R.id.btn_chatWallpaperForMe, R.id.btn_chatWallpaperForBoth},
+      new String[] {Lang.getString(R.string.ChatWallpaperForMe), Lang.getString(R.string.ChatWallpaperForBoth)},
+      (itemView, id) -> {
+        after.runWithBool(id == R.id.btn_chatWallpaperForMe);
+        return true;
+      }
+    );
+  }
+
+  private void sendSetChatBackground (long chatId, @Nullable TdApi.InputBackground input, @Nullable TdApi.BackgroundType type, boolean onlyForSelf) {
+    tdlib.send(new TdApi.SetChatBackground(chatId, input, type, 0, onlyForSelf), (ok, error) -> runOnUiThreadOptional(() -> {
+      if (error != null) {
+        UI.showError(error);
+      } else {
+        navigateBack();
+      }
+    }));
+  }
+
+  /** Re-encodes any picture to a JPEG of at most 2560px (rotation applied), off the UI thread. */
+  private void prepareChatWallpaperFile (String path, RunnableData<String> callback) {
+    Background.instance().post(() -> {
+      String result = null;
+      try {
+        ImageFileLocal file = new ImageFileLocal(path);
+        file.setSize(2560);
+        android.graphics.Bitmap bitmap = ImageReader.readImage(file, path);
+        if (bitmap != null) {
+          File dir = new File(UI.getAppContext().getCacheDir(), "chat_wallpapers");
+          if (dir.exists() || dir.mkdirs()) {
+            File out = new File(dir, "wallpaper_" + System.currentTimeMillis() + ".jpg");
+            if (U.compress(bitmap, 90, out.getPath())) {
+              result = out.getPath();
+            }
+          }
+          bitmap.recycle();
+        }
+      } catch (Throwable t) {
+        Log.w("Failed to prepare chat wallpaper", t);
+      }
+      final String jpegPath = result;
+      runOnUiThreadOptional(() -> callback.runWithData(jpegPath));
+    });
+  }
+
+  private void applyChatBackground (@Nullable TdApi.ChatBackground background, boolean animated) {
+    if (wallpaperView != null && !inWallpaperMode()) {
+      wallpaperView.setChatBackground(background, animated);
+    }
+  }
+
+  @Override
+  public void onChatBackgroundChanged (long chatId, @Nullable TdApi.ChatBackground background) {
+    runOnUiThreadOptional(() -> {
+      if (getChatId() != chatId) {
+        return;
+      }
+      applyChatBackground(background, true);
+      // "Set a new wallpaper" service messages show their "Remove" button
+      // only while their wallpaper is the current one
+      MessagesAdapter adapter = manager.getAdapter();
+      if (adapter != null) {
+        for (int i = 0, count = adapter.getMessageCount(); i < count; i++) {
+          TGMessage message = adapter.getMessage(i);
+          if (message instanceof TGMessageService) {
+            ((TGMessageService) message).onChatBackgroundChanged();
+          }
+        }
       }
     });
   }

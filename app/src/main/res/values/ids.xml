@@ -1342,6 +1342,12 @@
   <item type="id" name="btn_messageUnblockMember" />
 
   <item type="id" name="btn_applyWallpaper" />
+  <item type="id" name="btn_chatWallpaper" />
+  <item type="id" name="btn_removeChatWallpaper" />
+  <item type="id" name="btn_chatWallpaperForMe" />
+  <item type="id" name="btn_chatWallpaperForBoth" />
+  <item type="id" name="menu_chatWallpaper" />
+  <item type="id" name="controller_chatWallpaper" />
   <item type="id" name="btn_chatFolders" />
   <item type="id" name="btn_createNewFolder" />
   <item type="id" name="btn_editFolder" />

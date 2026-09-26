@@ -43,6 +43,7 @@ public class ContentPreview {
   public static final Emoji EMOJI_STARS = new Emoji("\u2B50", R.drawable.baseline_premium_star_16);
   public static final Emoji EMOJI_BOOST = new Emoji("\u26A1", R.drawable.baseline_bolt_16);
   public static final Emoji EMOJI_THEME = new Emoji("\uD83C\uDFA8", R.drawable.baseline_palette_16);
+  public static final Emoji EMOJI_WALLPAPER = new Emoji("\uD83D\uDDBC", R.drawable.baseline_collections_16);
   public static final Emoji EMOJI_GROUP_INVITE = new Emoji("\uD83D\uDC65", R.drawable.baseline_group_add_16);
   public static final Emoji EMOJI_CHANNEL = new Emoji("\uD83D\uDCE2", R.drawable.baseline_bullhorn_16); // "\uD83D\uDCE3"
   public static final Emoji EMOJI_FILE = new Emoji("\uD83D\uDCCE", R.drawable.baseline_insert_drive_file_16);
@@ -532,6 +533,9 @@ public class ContentPreview {
       case TdApi.MessageChatSetTheme.CONSTRUCTOR:
         alternativeText = Td.themeName(((TdApi.MessageChatSetTheme) message.content).theme);
         break;
+      case TdApi.MessageChatSetBackground.CONSTRUCTOR:
+        arg1 = ((TdApi.MessageChatSetBackground) message.content).oldBackgroundMessageId != 0 ? ARG_TRUE : ARG_NONE;
+        break;
       case TdApi.MessageGiftedPremium.CONSTRUCTOR: {
         // TODO: R.string.ChatContent*
         TdApi.MessageGiftedPremium giftedPremium = (TdApi.MessageGiftedPremium) message.content;
@@ -735,7 +739,6 @@ public class ContentPreview {
       case TdApi.MessageForumTopicIsClosedToggled.CONSTRUCTOR:
       case TdApi.MessageForumTopicIsHiddenToggled.CONSTRUCTOR:
       case TdApi.MessagePassportDataSent.CONSTRUCTOR:
-      case TdApi.MessageChatSetBackground.CONSTRUCTOR:
       case TdApi.MessageChecklist.CONSTRUCTOR:
       case TdApi.MessageChecklistTasksDone.CONSTRUCTOR:
       case TdApi.MessageChecklistTasksAdded.CONSTRUCTOR:
@@ -1349,6 +1352,8 @@ public class ContentPreview {
           else
             return new ContentPreview(EMOJI_THEME, 0, TD.toFormattedText(Lang.getStringBold(R.string.ChatContentThemeSet, formattedArgument.text), true));
         }
+      case TdApi.MessageChatSetBackground.CONSTRUCTOR:
+        return new ContentPreview(EMOJI_WALLPAPER, arg1 == ARG_TRUE ? R.string.ChatContentBackgroundSetSame : R.string.ChatContentBackgroundSet);
       case TdApi.MessageChatSetMessageAutoDeleteTime.CONSTRUCTOR: {
         if (arg1 > 0) {
           final int secondsRes, minutesRes, hoursRes, daysRes, weeksRes, monthsRes;
@@ -1572,7 +1577,6 @@ public class ContentPreview {
       case TdApi.MessageForumTopicIsClosedToggled.CONSTRUCTOR:
       case TdApi.MessageForumTopicIsHiddenToggled.CONSTRUCTOR:
       case TdApi.MessagePassportDataSent.CONSTRUCTOR:
-      case TdApi.MessageChatSetBackground.CONSTRUCTOR:
       case TdApi.MessagePremiumGiftCode.CONSTRUCTOR:
       case TdApi.MessageGiveawayPrizeStars.CONSTRUCTOR:
       case TdApi.MessageGift.CONSTRUCTOR:

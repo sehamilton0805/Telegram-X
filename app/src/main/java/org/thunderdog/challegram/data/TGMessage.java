@@ -8491,6 +8491,9 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
         case TdApi.MessageChatSetTheme.CONSTRUCTOR: {
           return new TGMessageService(context, msg, (TdApi.MessageChatSetTheme) content);
         }
+        case TdApi.MessageChatSetBackground.CONSTRUCTOR: {
+          return new TGMessageService(context, msg, (TdApi.MessageChatSetBackground) content);
+        }
         case TdApi.MessageChatSetMessageAutoDeleteTime.CONSTRUCTOR: {
           return new TGMessageService(context, msg, (TdApi.MessageChatSetMessageAutoDeleteTime) content);
         }
@@ -8662,7 +8665,6 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
         // unsupported
         case TdApi.MessageInvoice.CONSTRUCTOR:
         case TdApi.MessagePassportDataSent.CONSTRUCTOR:
-        case TdApi.MessageChatSetBackground.CONSTRUCTOR:
         case TdApi.MessageSuggestProfilePhoto.CONSTRUCTOR:
         case TdApi.MessageSuggestBirthdate.CONSTRUCTOR:
         case TdApi.MessageUsersShared.CONSTRUCTOR:

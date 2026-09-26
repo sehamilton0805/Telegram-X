@@ -5010,6 +5010,19 @@
   <string name="ChatBackgroundTypeGradient">gradient</string>
   <string name="ChatBackgroundTypeMulticolor">multicolor gradient</string>
   <string name="ChatBackgroundBlur">Blurred</string>
+  <string name="ChatBackgroundSet">%1$s установил(а) новые обои в этом чате</string>
+  <string name="ChatBackgroundSet_outgoing">Вы установили новые обои в этом чате</string>
+  <string name="ChatBackgroundSetSame">%1$s установил(а) такие же обои в этом чате</string>
+  <string name="ChatBackgroundSetSame_outgoing">Вы установили такие же обои в этом чате</string>
+  <string name="ChatContentBackgroundSet">Установлены новые обои</string>
+  <string name="ChatContentBackgroundSetSame">Установлены такие же обои</string>
+  <string name="ChatWallpaper">Обои чата</string>
+  <string name="ChatWallpaperRemove">Убрать обои чата</string>
+  <string name="ChatWallpaperApply">Установить в этом чате</string>
+  <string name="ChatWallpaperForMe">Только для себя</string>
+  <string name="ChatWallpaperForBoth">Для обоих</string>
+  <string name="ChatWallpaperPick">Выберите обои</string>
+  <string name="ChatWallpaperFileError">Не удалось подготовить картинку для обоев</string>
 
   <string name="NoCloudThemeSupport">This theme is not designed for **Telegram X**.\n\nHowever, you may check for user-made themes in @tgx_perfection.</string>
 

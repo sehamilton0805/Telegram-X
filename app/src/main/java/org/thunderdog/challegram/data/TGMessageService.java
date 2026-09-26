@@ -236,6 +236,26 @@ public final class TGMessageService extends TGMessageServiceImpl {
     });
   }
 
+  public TGMessageService (MessagesManager context, TdApi.Message msg, TdApi.MessageChatSetBackground setBackground) {
+    super(context, msg);
+    // oldBackgroundMessageId != 0: the same wallpaper as in an earlier message
+    // was set again (e.g. the peer applied the wallpaper you had set)
+    boolean isSame = setBackground.oldBackgroundMessageId != 0;
+    setTextCreator(() -> {
+      if (msg.isOutgoing) {
+        return getText(
+          isSame ? R.string.ChatBackgroundSetSame_outgoing : R.string.ChatBackgroundSet_outgoing
+        );
+      } else {
+        return getText(
+          isSame ? R.string.ChatBackgroundSetSame : R.string.ChatBackgroundSet,
+          new SenderArgument(sender, isUserChat())
+        );
+      }
+    });
+    setDisplayChatBackground(setBackground);
+  }
+
   public TGMessageService (MessagesManager context, TdApi.Message msg, TdApi.MessageExpiredPhoto expiredPhoto) {
     super(context, msg);
     setTextCreator(() ->

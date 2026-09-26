@@ -99,13 +99,28 @@ public class WallpaperAdapter extends RecyclerView.Adapter<WallpaperAdapter.View
   private @Nullable ArrayList<TGBackground> wallpapers;
   private TGBackground selectedWallpaper;
 
+  /**
+   * Selection mode: taps only report the picked wallpaper (per-chat wallpaper
+   * picker) instead of applying it to the global settings.
+   */
+  public interface SelectionListener {
+    void onWallpaperSelected (@NonNull TGBackground wallpaper);
+  }
+
+  private final @Nullable SelectionListener selectionListener;
+
   private final ArrayList<RecyclerView> attachedRecyclers;
   private final int themeId;
 
   public WallpaperAdapter (ViewController<?> context, int themeId) {
+    this(context, themeId, null, null);
+  }
+
+  public WallpaperAdapter (ViewController<?> context, int themeId, @Nullable TGBackground selectedWallpaper, @Nullable SelectionListener selectionListener) {
     this.context = context;
     this.themeId = themeId;
-    this.selectedWallpaper = context.tdlib().settings().getWallpaper(Theme.getWallpaperIdentifier());
+    this.selectionListener = selectionListener;
+    this.selectedWallpaper = selectionListener != null ? selectedWallpaper : context.tdlib().settings().getWallpaper(Theme.getWallpaperIdentifier());
     this.attachedRecyclers = new ArrayList<>();
     context.tdlib().wallpaper().getBackgrounds(this::setWallpapers, Theme.isDarkTheme(themeId));
     ThemeManager.instance().addChatStyleListener(this);
@@ -315,8 +330,16 @@ public class WallpaperAdapter extends RecyclerView.Adapter<WallpaperAdapter.View
   private void replaceWallpapers (ArrayList<TGBackground> wallpapers) {
     int oldItemCount = getItemCount();
     this.wallpapers = wallpapers;
-    this.selectedWallpaper = context.tdlib().settings().getWallpaper(Theme.getWallpaperIdentifier());
-    int index = indexOfWallpaper(selectedWallpaper);
+    if (selectionListener == null) {
+      this.selectedWallpaper = context.tdlib().settings().getWallpaper(Theme.getWallpaperIdentifier());
+    }
+    int index = selectedWallpaper != null ? indexOfWallpaper(selectedWallpaper) : -1;
+    if (index == -1 && selectedWallpaper == null) {
+      // Selection mode without a current wallpaper: nothing to highlight
+      U.notifyItemsReplaced(this, oldItemCount);
+      centerWallpapers(false, 0);
+      return;
+    }
     if (index == -1) {
       index = 0;
       while (wallpapers.size() > index) {
@@ -447,10 +470,18 @@ public class WallpaperAdapter extends RecyclerView.Adapter<WallpaperAdapter.View
     if (wallpaper != null) {
       if (wallpaper.isCustom()) {
         Intents.openGallery(context.context(), false);
+      } else if (selectionListener != null) {
+        setSelected(wallpaper);
+        selectionListener.onWallpaperSelected(wallpaper);
       } else {
         context.tdlib().settings().setWallpaper(wallpaper, true, Theme.getWallpaperIdentifier());
       }
     }
+  }
+
+  /** Selection mode: a wallpaper picked outside the list (e.g. from the gallery). */
+  public void selectWallpaper (@NonNull TGBackground wallpaper) {
+    applyWallpaper(wallpaper);
   }
 
   @Override
@@ -458,9 +489,16 @@ public class WallpaperAdapter extends RecyclerView.Adapter<WallpaperAdapter.View
 
   @Override
   public void onChatWallpaperChanged (Tdlib tdlib, @Nullable TGBackground wallpaper, int usageId) {
+    if (selectionListener != null) {
+      return; // the list follows the picked wallpaper, not the global one
+    }
     if (this.context.tdlib() != tdlib || Theme.getWallpaperIdentifier() != usageId) {
       return;
     }
+    applyWallpaper(wallpaper);
+  }
+
+  private void applyWallpaper (@Nullable TGBackground wallpaper) {
     if (wallpapers != null && !wallpapers.isEmpty() && wallpaper != null && wallpaper.isCustom() && !TGBackground.compare(wallpapers.get(0), wallpaper)) {
       TGBackground oldWallpaper = wallpapers.get(0);
       wallpapers.set(0, wallpaper);

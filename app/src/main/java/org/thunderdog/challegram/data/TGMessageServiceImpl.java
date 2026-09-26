@@ -16,6 +16,7 @@
 package org.thunderdog.challegram.data;
 
 import android.graphics.Canvas;
+import android.graphics.Path;
 import android.graphics.RectF;
 import android.text.style.ClickableSpan;
 import android.view.MotionEvent;
@@ -34,6 +35,8 @@ import org.thunderdog.challegram.component.chat.MessagesManager;
 import org.thunderdog.challegram.component.dialogs.ChatView;
 import org.thunderdog.challegram.core.Lang;
 import org.thunderdog.challegram.loader.ComplexReceiver;
+import org.thunderdog.challegram.loader.DoubleImageReceiver;
+import org.thunderdog.challegram.loader.ImageFile;
 import org.thunderdog.challegram.mediaview.MediaViewController;
 import org.thunderdog.challegram.mediaview.MediaViewThumbLocation;
 import org.thunderdog.challegram.mediaview.data.MediaItem;
@@ -43,10 +46,14 @@ import org.thunderdog.challegram.telegram.TdlibAccentColor;
 import org.thunderdog.challegram.telegram.TdlibEmojiManager;
 import org.thunderdog.challegram.telegram.TdlibSender;
 import org.thunderdog.challegram.theme.ColorId;
+import org.thunderdog.challegram.theme.TGBackground;
 import org.thunderdog.challegram.theme.Theme;
+import org.thunderdog.challegram.tool.DrawAlgorithms;
 import org.thunderdog.challegram.tool.Paints;
 import org.thunderdog.challegram.tool.Screen;
 import org.thunderdog.challegram.tool.UI;
+import org.thunderdog.challegram.tool.Views;
+import org.thunderdog.challegram.ui.MessagesController;
 import org.thunderdog.challegram.util.text.FormattedText;
 import org.thunderdog.challegram.util.text.Text;
 import org.thunderdog.challegram.util.text.TextColorSet;
@@ -60,7 +67,9 @@ import java.util.concurrent.TimeUnit;
 import me.vkryl.android.util.ClickHelper;
 import me.vkryl.core.ColorUtils;
 import me.vkryl.core.lambda.Filter;
+import tgx.td.ChatId;
 import tgx.td.MessageId;
+import tgx.td.Td;
 
 abstract class TGMessageServiceImpl extends TGMessage {
   protected TGMessageServiceImpl (MessagesManager manager, TdApi.Message msg) {
@@ -102,6 +111,212 @@ abstract class TGMessageServiceImpl extends TGMessage {
     } else {
       this.chatPhoto = null;
     }
+  }
+
+  // == Chat wallpaper (MessageChatSetBackground) ==
+  // Text, then a rounded preview of the wallpaper; while this wallpaper is the
+  // current one in the chat, a "Remove" button below it (DeleteChatBackground).
+
+  private static final long BACKGROUND_PREVIEW_RECEIVER_KEY = 1000L;
+
+  private @Nullable TdApi.MessageChatSetBackground setBackground;
+  private @Nullable TGBackground backgroundPreview;
+  private @Nullable TGInlineKeyboard removeButton;
+  private boolean removeButtonVisible;
+  private final DrawAlgorithms.GradientCache backgroundGradientCache = new DrawAlgorithms.GradientCache();
+  private final Path backgroundClipPath = new Path();
+  private final RectF backgroundClipRect = new RectF();
+
+  protected void setDisplayChatBackground (@NonNull TdApi.MessageChatSetBackground setBackground) {
+    this.setBackground = setBackground;
+    this.backgroundPreview = setBackground.background != null && setBackground.background.background != null ?
+      new TGBackground(tdlib, setBackground.background.background) :
+      null;
+  }
+
+  private static int getBackgroundPreviewSize () {
+    return Screen.dp(120f);
+  }
+
+  private static int getBackgroundPreviewRadius () {
+    return Screen.dp(16f);
+  }
+
+  private int getBackgroundPreviewTop () {
+    return getTextY() + (displayText != null ? displayText.getHeight() : 0) + Screen.dp(useBubbles() ? 10f : 8f);
+  }
+
+  private int getBackgroundPreviewLeft () {
+    return (this.width - getBackgroundPreviewSize()) / 2;
+  }
+
+  private int getBackgroundBlockHeight () {
+    if (backgroundPreview == null) {
+      return 0;
+    }
+    int height = Screen.dp(useBubbles() ? 10f : 8f) + getBackgroundPreviewSize();
+    if (removeButtonVisible) {
+      height += Screen.dp(8f) + TGInlineKeyboard.getButtonHeight();
+    }
+    return height;
+  }
+
+  private boolean isCurrentChatBackground () {
+    if (setBackground == null || setBackground.background == null) {
+      return false;
+    }
+    TdApi.Chat chat = tdlib.chat(msg.chatId);
+    TdApi.ChatBackground current = chat != null ? chat.background : null;
+    return current != null && Td.equalsTo(current.background, setBackground.background.background);
+  }
+
+  /** Called when the background of the chat changes: the "Remove" button follows. */
+  public final void onChatBackgroundChanged () {
+    if (backgroundPreview != null && removeButtonVisible != isCurrentChatBackground()) {
+      updateServiceMessage();
+    }
+  }
+
+  private void updateRemoveButton () {
+    removeButtonVisible = backgroundPreview != null && isCurrentChatBackground();
+    if (removeButtonVisible && removeButton == null) {
+      // setCustom() unconditionally builds a brand-new Button (TGInlineKeyboard
+      // :168), discarding whatever the old one had in flight; buildContent()
+      // runs updateRemoveButton() on every relayout (rotation, resize, an
+      // unrelated invalidate...), so calling it every time would silently wipe
+      // showProgressDelayed()'s spinner mid-request and let the user tap
+      // "Remove" again, double-sending DeleteChatBackground. Build it once;
+      // its config (label, size) never depends on this message's own layout
+      removeButton = new TGInlineKeyboard(this, false);
+      removeButton.setViewProvider(currentViews);
+      removeButton.setCustom(0, Lang.getString(R.string.Remove), getBackgroundPreviewSize(), false, (view, keyboard, button) -> removeChatBackground());
+    }
+  }
+
+  private void removeChatBackground () {
+    if (setBackground == null) {
+      return;
+    }
+    // TDLib: restorePrevious brings back the wallpaper you had before the peer
+    // set this one; allowed only in private chats when userFullInfo says so
+    boolean restorePrevious = false;
+    if (!msg.isOutgoing && ChatId.isUserChat(msg.chatId)) {
+      TdApi.UserFullInfo userFull = tdlib.cache().userFull(ChatId.toUserId(msg.chatId));
+      restorePrevious = userFull != null && userFull.setChatBackground;
+    }
+    if (removeButton != null) {
+      removeButton.firstButton().showProgressDelayed();
+    }
+    sendDeleteChatBackground(restorePrevious);
+  }
+
+  private void sendDeleteChatBackground (boolean restorePrevious) {
+    tdlib.send(new TdApi.DeleteChatBackground(msg.chatId, restorePrevious), (ok, error) -> runOnUiThreadOptional(() -> {
+      if (error != null && restorePrevious) {
+        sendDeleteChatBackground(false);
+        return;
+      }
+      if (removeButton != null) {
+        removeButton.firstButton().hideProgress();
+      }
+      if (error != null) {
+        UI.showError(error);
+      }
+    }));
+  }
+
+  private void openBackgroundPreview () {
+    if (setBackground == null || setBackground.background == null || setBackground.background.background == null) {
+      return;
+    }
+    MessagesController c = new MessagesController(context(), tdlib);
+    c.setArguments(new MessagesController.Arguments(MessagesController.PREVIEW_MODE_WALLPAPER_OBJECT, null, null)
+      .setWallpaperObject(setBackground.background.background)
+      .setWallpaperChatId(msg.chatId)
+    );
+    context().navigation().navigateTo(c);
+  }
+
+  private boolean isWithinBackgroundPreview (float x, float y) {
+    if (displayText == null || backgroundPreview == null) {
+      return false;
+    }
+    int size = getBackgroundPreviewSize();
+    int left = getBackgroundPreviewLeft();
+    int top = getBackgroundPreviewTop();
+    return x >= left && x < left + size && y >= top && y < top + size;
+  }
+
+  private void requestBackgroundPreview (ComplexReceiver receiver) {
+    DoubleImageReceiver r = receiver.getPreviewReceiver(BACKGROUND_PREVIEW_RECEIVER_KEY);
+    ImageFile image = backgroundPreview != null ? backgroundPreview.getPreview(false) : null;
+    if (image != null) {
+      r.requestFile(backgroundPreview.getPreview(true), image);
+    } else {
+      r.requestFile(null, null);
+    }
+  }
+
+  private void drawBackgroundPreview (Canvas c, ComplexReceiver receiver) {
+    TGBackground wallpaper = this.backgroundPreview;
+    if (wallpaper == null) {
+      return;
+    }
+    int size = getBackgroundPreviewSize();
+    int radius = getBackgroundPreviewRadius();
+    int left = getBackgroundPreviewLeft();
+    int top = getBackgroundPreviewTop();
+    int right = left + size, bottom = top + size;
+
+    if (backgroundClipRect.left != left || backgroundClipRect.top != top || backgroundClipRect.right != right || backgroundClipRect.bottom != bottom) {
+      backgroundClipRect.set(left, top, right, bottom);
+      backgroundClipPath.reset();
+      backgroundClipPath.addRoundRect(backgroundClipRect, radius, radius, Path.Direction.CW);
+    }
+
+    DoubleImageReceiver r = receiver.getPreviewReceiver(BACKGROUND_PREVIEW_RECEIVER_KEY);
+    r.setBounds(left, top, right, bottom);
+    r.setRadius(radius);
+
+    final int defaultColor = ColorUtils.compositeColor(Theme.getColor(ColorId.background), Theme.getColor(ColorId.bubble_chatBackground));
+    final int saveCount = Views.save(c);
+    c.clipPath(backgroundClipPath);
+    // Same cases as WallpaperView.drawWallpaper, on a small rounded tile
+    if (wallpaper.isEmpty()) {
+      c.drawColor(defaultColor);
+    } else if (wallpaper.isFillSolid()) {
+      c.drawColor(wallpaper.getBackgroundColor(defaultColor));
+    } else if (wallpaper.isFillGradient()) {
+      DrawAlgorithms.drawGradient(c, backgroundGradientCache, left, top, right, bottom, wallpaper.getTopColor(), wallpaper.getBottomColor(), wallpaper.getRotationAngle(), 1f);
+    } else if (wallpaper.isFillFreeformGradient()) {
+      c.drawColor(wallpaper.getBackgroundColor(defaultColor));
+      DrawAlgorithms.drawMulticolorGradient(c, backgroundGradientCache, left, top, right, bottom, wallpaper.getFreeformColors(), 1f);
+    } else if (wallpaper.isPattern()) {
+      if (wallpaper.isPatternBackgroundGradient()) {
+        DrawAlgorithms.drawGradient(c, backgroundGradientCache, left, top, right, bottom, wallpaper.getTopColor(), wallpaper.getBottomColor(), wallpaper.getRotationAngle(), 1f);
+      } else if (wallpaper.isPatternBackgroundFreeformGradient()) {
+        c.drawColor(wallpaper.getBackgroundColor(defaultColor));
+        DrawAlgorithms.drawMulticolorGradient(c, backgroundGradientCache, left, top, right, bottom, wallpaper.getFreeformColors(), 1f);
+      } else {
+        c.drawColor(wallpaper.getBackgroundColor(defaultColor));
+      }
+      r.getReceiver().setPorterDuffColorFilter(wallpaper.getPatternColor());
+      float alpha = wallpaper.getPatternIntensity();
+      if (alpha != 1f) {
+        r.setPaintAlpha(alpha);
+      }
+      r.getReceiver().draw(c);
+      if (alpha != 1f) {
+        r.restorePaintAlpha();
+      }
+    } else {
+      if (r.needPlaceholder()) {
+        c.drawColor(defaultColor);
+      }
+      r.disablePorterDuffColorFilter();
+      r.draw(c);
+    }
+    Views.restore(c, saveCount);
   }
 
   private ServiceMessageCreator originalMessageCreator;
@@ -195,6 +410,8 @@ abstract class TGMessageServiceImpl extends TGMessage {
   public void requestMediaContent (ComplexReceiver receiver, boolean invalidate, int invalidateArg) {
     if (chatPhoto != null) {
       chatPhoto.requestFiles(receiver, invalidate);
+    } else if (backgroundPreview != null) {
+      requestBackgroundPreview(receiver);
     } else {
       receiver.clear();
     }
@@ -207,7 +424,7 @@ abstract class TGMessageServiceImpl extends TGMessage {
   private final ClickHelper helper = new ClickHelper(new ClickHelper.Delegate() {
     @Override
     public boolean needClickAt (View view, float x, float y) {
-      return isWithinPhotoCoordinates(x, y);
+      return isWithinPhotoCoordinates(x, y) || isWithinBackgroundPreview(x, y);
     }
 
     @Override
@@ -217,6 +434,8 @@ abstract class TGMessageServiceImpl extends TGMessage {
         if (item != null) {
           MediaViewController.openFromMessage(TGMessageServiceImpl.this, item);
         }
+      } else if (isWithinBackgroundPreview(x, y)) {
+        openBackgroundPreview();
       }
     }
   });
@@ -224,6 +443,8 @@ abstract class TGMessageServiceImpl extends TGMessage {
   @Override
   protected void buildContent (int maxWidth) {
     int availWidth = Math.max(0, this.width - Screen.dp(12f) * 2);
+
+    updateRemoveButton();
 
     FormattedText formattedText =
       textCreator != null ?
@@ -298,13 +519,15 @@ abstract class TGMessageServiceImpl extends TGMessage {
     return
       (displayText != null ? displayText.getHeight() : 0) +
       (useBubbles() ? 0 : Screen.dp(3f) + Screen.dp(1.5f)) +
-      (chatPhoto != null ? Screen.dp(28f) * 2 + Screen.dp(8f) : 0);
+      (chatPhoto != null ? Screen.dp(28f) * 2 + Screen.dp(8f) : 0) +
+      getBackgroundBlockHeight();
   }
 
   @Override
   public boolean performLongPress (View view, float x, float y) {
     boolean res = super.performLongPress(view, x, y);
     res = (displayText != null && displayText.performLongPress(view)) || res;
+    res = (removeButtonVisible && removeButton != null && removeButton.performLongPress(view)) || res;
     helper.cancel(view, x, y);
     return res;
   }
@@ -312,6 +535,9 @@ abstract class TGMessageServiceImpl extends TGMessage {
   @Override
   public boolean onTouchEvent (MessageView view, MotionEvent e) {
     if (super.onTouchEvent(view, e)) {
+      return true;
+    }
+    if (removeButtonVisible && removeButton != null && removeButton.onTouchEvent(view, e)) {
       return true;
     }
     boolean res = displayText != null && displayText.onTouchEvent(view, e);
@@ -362,6 +588,14 @@ abstract class TGMessageServiceImpl extends TGMessage {
       int avatarTop = textY + displayText.getHeight() + Screen.dp(useBubbles() ? 10f : 8);
       float avatarLeft = this.width / 2f - avatarRadius;
       chatPhoto.draw(view, c, receiver, avatarLeft, avatarTop, 1f);
+    }
+
+    // Chat wallpaper preview + "Remove"
+    if (backgroundPreview != null) {
+      drawBackgroundPreview(c, receiver);
+      if (removeButtonVisible && removeButton != null) {
+        removeButton.draw(view, c, getBackgroundPreviewLeft(), getBackgroundPreviewTop() + getBackgroundPreviewSize() + Screen.dp(8f));
+      }
     }
   }
 

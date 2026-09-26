@@ -44,6 +44,7 @@ import tgx.td.TdConstants;
 public class TGBackground {
   private final int accountId;
   private final String name;
+  private long id; // TdApi.Background.id, 0 for local/legacy/solid wallpapers
   private TdApi.BackgroundType type;
   private final String customPath;
   private final boolean isVector;
@@ -212,6 +213,7 @@ public class TGBackground {
   public TGBackground (Tdlib tdlib, TdApi.Background background, boolean blur) {
     this.accountId = tdlib.id();
     this.name = background.name;
+    this.id = background.id;
     this.type = background.type;
     this.customPath = null;
     this.isVector = background.document != null && TdConstants.BACKGROUND_PATTERN_MIME_TYPE.equals(background.document.mimeType);
@@ -330,6 +332,10 @@ public class TGBackground {
 
   public String getName () {
     return name;
+  }
+
+  public long getId () {
+    return id;
   }
 
   public boolean isFill () {

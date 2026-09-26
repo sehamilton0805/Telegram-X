@@ -39,6 +39,8 @@ import org.thunderdog.challegram.tool.DrawAlgorithms;
 import org.thunderdog.challegram.tool.Screen;
 import org.thunderdog.challegram.tool.UI;
 
+import tgx.td.Td;
+
 import me.vkryl.android.AnimatorUtils;
 import me.vkryl.android.animator.FactorAnimator;
 import me.vkryl.core.ColorUtils;
@@ -55,6 +57,15 @@ public class WallpaperView extends View implements ThemeChangeListener, ChatStyl
   TGBackground wallpaper, previewWallpaper;
 
   private boolean inSetupMode, inSelfBlurMode, selfBlurValue;
+
+  // Per-chat wallpaper (TdApi.Chat.background). While set, it replaces the
+  // global wallpaper in this chat and global wallpaper changes are ignored;
+  // when it is removed, the global wallpaper comes back.
+  private @Nullable TdApi.ChatBackground chatBackground;
+  private @Nullable TGBackground chatWallpaper;
+  // Dark-theme dimming that was on screen before the last chat wallpaper
+  // change, so the dim overlay cross-fades together with the wallpaper.
+  private float previousDimming;
 
   public WallpaperView (Context context, MessagesManager manager, Tdlib tdlib) {
     super(context);
@@ -142,7 +153,7 @@ public class WallpaperView extends View implements ThemeChangeListener, ChatStyl
   public void onThemeChanged (ThemeDelegate oldTheme, ThemeDelegate newTheme) {
     int newUsageIdentifier = Theme.getWallpaperIdentifier(newTheme);
     if (Theme.getWallpaperIdentifier(oldTheme) != newUsageIdentifier) {
-      setWallpaper(tdlib.settings().getWallpaper(newUsageIdentifier), true);
+      setGlobalWallpaper(tdlib.settings().getWallpaper(newUsageIdentifier), true);
     }
   }
 
@@ -150,9 +161,95 @@ public class WallpaperView extends View implements ThemeChangeListener, ChatStyl
   public void onThemePropertyChanged (int themeId, @PropertyId int propertyId, float value, boolean isDefault) {
     switch (propertyId) {
       case PropertyId.WALLPAPER_USAGE_ID:
-        setWallpaper(tdlib.settings().getWallpaper(Theme.getWallpaperIdentifier(themeId)), true);
+        setGlobalWallpaper(tdlib.settings().getWallpaper(Theme.getWallpaperIdentifier(themeId)), true);
         break;
     }
+  }
+
+  private void setGlobalWallpaper (TGBackground wallpaper, boolean animated) {
+    if (chatWallpaper != null) {
+      return; // the chat keeps its own wallpaper
+    }
+    setWallpaper(wallpaper, animated);
+  }
+
+  // Chat wallpaper
+
+  public static boolean equalsTo (@Nullable TdApi.ChatBackground a, @Nullable TdApi.ChatBackground b) {
+    if (a == b) {
+      return true;
+    }
+    if (a == null || b == null) {
+      return false;
+    }
+    return a.darkThemeDimming == b.darkThemeDimming && Td.equalsTo(a.background, b.background);
+  }
+
+  public void setChatBackground (@Nullable TdApi.ChatBackground background, boolean animated) {
+    if (inSetupMode) {
+      return; // wallpaper picker & preview screens show what they were given
+    }
+    if (equalsTo(this.chatBackground, background)) {
+      return;
+    }
+    if (this.chatBackground != null && background != null && Td.equalsTo(this.chatBackground.background, background.background)) {
+      // Same wallpaper, only the dimming changed: snap to the new value.
+      // animateChange() must not be used here - it is the wallpaper swap
+      // animator and finishes by replacing `wallpaper` with `previewWallpaper`
+      this.chatBackground = background;
+      this.previousDimming = targetDimming();
+      invalidate();
+      return;
+    }
+    this.previousDimming = currentDimming();
+    this.chatBackground = background;
+    this.chatWallpaper = background != null ? new TGBackground(tdlib, background.background) : null;
+    TGBackground wallpaper = chatWallpaper != null ? chatWallpaper : tdlib.settings().getWallpaper(Theme.getWallpaperIdentifier());
+    setWallpaper(wallpaper, animated);
+    if (!isAnimatingChanges()) {
+      previousDimming = targetDimming();
+    }
+    invalidate();
+  }
+
+  public @Nullable TdApi.ChatBackground getChatBackground () {
+    return chatBackground;
+  }
+
+  /**
+   * Shows the given wallpaper (or the global one when null) in a screen that
+   * previews wallpapers, e.g. the per-chat wallpaper picker.
+   */
+  public void showWallpaper (@Nullable TGBackground wallpaper, boolean animated) {
+    setWallpaper(wallpaper != null ? wallpaper : tdlib.settings().getWallpaper(Theme.getWallpaperIdentifier()), animated);
+  }
+
+  private static boolean allowsDimming (@Nullable TdApi.ChatBackground background) {
+    if (background == null || background.background == null || background.background.type == null) {
+      return false;
+    }
+    // TDLib: "Applied only to Wallpaper and Fill types of background"
+    switch (background.background.type.getConstructor()) {
+      case TdApi.BackgroundTypeWallpaper.CONSTRUCTOR:
+      case TdApi.BackgroundTypeFill.CONSTRUCTOR:
+        return true;
+    }
+    return false;
+  }
+
+  private float targetDimming () {
+    if (chatBackground != null && allowsDimming(chatBackground)) {
+      return chatBackground.darkThemeDimming / 100f;
+    }
+    return 0f;
+  }
+
+  private float currentDimming () {
+    float target = targetDimming();
+    if (isAnimatingChanges()) {
+      return previousDimming + (target - previousDimming) * factor;
+    }
+    return target;
   }
 
   @Override
@@ -178,7 +275,7 @@ public class WallpaperView extends View implements ThemeChangeListener, ChatStyl
         wallpaper = TGBackground.newBlurredWallpaper(tdlib, wallpaper, selfBlurValue);
       }
 
-      setWallpaper(wallpaper, true);
+      setGlobalWallpaper(wallpaper, true);
     }
   }
 
@@ -251,6 +348,7 @@ public class WallpaperView extends View implements ThemeChangeListener, ChatStyl
       preview = tempReceiver;
 
       factor = 0f;
+      previousDimming = targetDimming();
 
       preview.clear();
 
@@ -372,6 +470,11 @@ public class WallpaperView extends View implements ThemeChangeListener, ChatStyl
       } else {
         drawWallpaper(wallpaper, c, gradientCache, ThemeManager.instance().previousTheme(), receiver, 1f);
         drawWallpaper(previewWallpaper, c, gradientCache, ThemeManager.instance().appliedTheme(), preview, factor);
+      }
+      // Chat wallpaper dimming in dark themes (chatBackground.darkThemeDimming)
+      float dimming = Theme.isDark() ? currentDimming() : 0f;
+      if (dimming > 0f) {
+        c.drawColor(ColorUtils.alphaColor(dimming, 0xff000000));
       }
     } else {
       c.drawColor(Theme.getColor(ColorId.chatBackground));
