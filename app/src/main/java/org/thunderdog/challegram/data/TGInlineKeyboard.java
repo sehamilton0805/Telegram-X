@@ -146,6 +146,31 @@ public class TGInlineKeyboard {
     this.useContentTextMedia = useContentTextMedia;
   }
 
+  // Rich message button rows (PageBlockButtonRow): a button text that mixes
+  // words and custom emoji is drawn as rich text, the emoji staying where the
+  // bot put them ("Bestiary: <emoji>"), instead of becoming a leading icon.
+  // Indexed like the buttons, row by row; null entries keep the plain label.
+  private @Nullable TdApi.FormattedText[] richLabels;
+  // Row alignment of PageBlockButtonRow: when set, buttons are as wide as
+  // their content and aligned in the row (official look); null = full width
+  private @Nullable TdApi.PageBlockHorizontalAlignment alignment;
+  // Per-button frame relative to the keyboard's left edge, set by buildLayout
+  private int[] frameX = new int[0], frameWidth = new int[0];
+  // Per-row decision of buildLayout: content-sized (aligned and fits) or not
+  private boolean[] rowCompact = new boolean[0];
+
+  public void setRichLabels (@Nullable TdApi.FormattedText[] richLabels) {
+    this.richLabels = richLabels;
+  }
+
+  public void setAlignment (@Nullable TdApi.PageBlockHorizontalAlignment alignment) {
+    this.alignment = alignment;
+  }
+
+  public static boolean isBlankText (String text) {
+    return Button.isBlankLabel(text);
+  }
+
   // Icon media of this keyboard must be (re)requested into the receiver it
   // is drawn from: the async custom-emoji load callback that pointed at the
   // reply-markup receiver left content-embedded icons as placeholders forever
@@ -223,10 +248,14 @@ public class TGInlineKeyboard {
   // Several keyboards can share one receiver (a rich message hosting many
   // button rows): keys are offset per keyboard, the caller trims the tail
   public int requestTextMedia (ComplexReceiver receiver, int keyOffset) {
-    for (int i = 0; i < buttons.size(); i++) {
-      buttons.get(i).requestIconTextMedia(receiver, keyOffset + i);
+    // One key per button (its icon), a rich label takes one key per custom emoji
+    int key = keyOffset;
+    for (Button button : buttons) {
+      int keyCount = button.getTextMediaKeyCount();
+      button.requestIconTextMedia(receiver, key, keyCount);
+      key += keyCount;
     }
-    return keyOffset + buttons.size();
+    return key;
   }
 
   public void performDestroy () {
@@ -291,18 +320,30 @@ public class TGInlineKeyboard {
     int buttonCount = 0;
     final int preparedButtonCount = buttons.size();
     int buttonTextPadding = Screen.dp(12f);
+    if (rowCompact.length != keyboard.rows.length) {
+      rowCompact = new boolean[keyboard.rows.length];
+    }
+    int rowIndex = 0;
     for (TdApi.InlineKeyboardButton[] row : keyboard.rows) {
       final int buttonWidth = (maxWidth - buttonSpacing * (row.length - 1)) / row.length;
       final int textWidth = Math.max(0, buttonWidth - buttonPadding * 2);
+      // An aligned row is content-sized: lay its labels out as wide as the row
+      // allows (neighbours at their minimum), so a label is not cut to an equal
+      // share it will never be drawn in; equal shares only if the row overflows
+      final int rowTextWidth = alignment != null ?
+        Math.max(textWidth, maxWidth - (row.length - 1) * (Screen.dp(MIN_COMPACT_WIDTH_DP) + buttonSpacing) - buttonPadding * 2) :
+        textWidth;
+      final int rowStart = buttonCount;
       for (TdApi.InlineKeyboardButton rawButton : row) {
         Button button;
+        TdApi.FormattedText richLabel = richLabelAt(buttonCount);
         if (buttonCount >= preparedButtonCount) {
-          button = new Button(this, parent, rawButton, textWidth);
+          button = new Button(this, parent, rawButton, richLabel, rowTextWidth);
           button.setViewProvider(viewProvider);
           buttons.add(button);
         } else {
           button = buttons.get(buttonCount);
-          button.set(rawButton, textWidth);
+          button.set(rawButton, richLabel, rowTextWidth);
         }
         float minWidth = button.getPreferredMinWidth();
         if (minWidth != 0) {
@@ -314,13 +355,109 @@ public class TGInlineKeyboard {
         }
         buttonCount++;
       }
+      boolean compact = false;
+      if (alignment != null) {
+        int totalWidth = compactRowWidths(rowStart, row.length, new int[row.length]);
+        compact = totalWidth <= maxWidth;
+        if (!compact && rowTextWidth != textWidth) {
+          // The content-sized row does not fit: equal shares after all
+          for (int i = 0; i < row.length; i++) {
+            buttons.get(rowStart + i).set(row[i], richLabelAt(rowStart + i), textWidth);
+          }
+        }
+      }
+      rowCompact[rowIndex++] = compact;
     }
     while (buttons.size() > buttonCount) {
       buttons.remove(buttons.size() - 1).performDestroy();
     }
 
+    computeFrames();
+
     if (retryWidth != 0 && retryWidth > maxWidth && preferredMinWidth > maxWidth) {
       buildLayout((int) Math.min(preferredMinWidth, retryWidth), 0);
+    }
+  }
+
+  private @Nullable TdApi.FormattedText richLabelAt (int index) {
+    return richLabels != null && index >= 0 && index < richLabels.length ? richLabels[index] : null;
+  }
+
+  private static final float MIN_COMPACT_WIDTH_DP = 48f;
+
+  // Content-sized widths of an aligned row, returns the row's total width.
+  // A row made only of lone emoji (custom or not) shares one cell width, so
+  // the columns of a bot grid, sent row by row, line up whatever each cell shows
+  private int compactRowWidths (int rowStart, int rowLength, int[] outWidths) {
+    boolean uniform = true;
+    int widest = 0;
+    for (int i = 0; i < rowLength; i++) {
+      Button button = buttons.get(rowStart + i);
+      int width = button.getCompactWidth();
+      outWidths[i] = width;
+      widest = Math.max(widest, width);
+      if (!button.isIconLikeCell()) {
+        uniform = false;
+      }
+    }
+    int totalWidth = getButtonSpacing() * (rowLength - 1);
+    for (int i = 0; i < rowLength; i++) {
+      if (uniform) {
+        outWidths[i] = widest;
+      }
+      totalWidth += outWidths[i];
+    }
+    return totalWidth;
+  }
+
+  // Button frames: equal shares of the row (classic keyboards), or, for an
+  // aligned rich button row, content-sized buttons placed left/center/right.
+  // An aligned row that does not fit falls back to equal shares (the decision
+  // is buildLayout's, so frames always match how the labels were laid out).
+  private void computeFrames () {
+    final int count = buttons.size();
+    if (frameX.length != count) {
+      frameX = new int[count];
+      frameWidth = new int[count];
+    }
+    if (keyboard == null) {
+      return;
+    }
+    final int buttonSpacing = getButtonSpacing();
+    int index = 0;
+    int rowIndex = 0;
+    for (TdApi.InlineKeyboardButton[] row : keyboard.rows) {
+      final int rowLength = row.length;
+      if (rowLength == 0 || index + rowLength > count) {
+        break;
+      }
+      final int equalWidth = (maxWidth - buttonSpacing * (rowLength - 1)) / rowLength;
+      final boolean compact = alignment != null && rowIndex < rowCompact.length && rowCompact[rowIndex];
+      rowIndex++;
+      final int[] compactWidths = compact ? new int[rowLength] : null;
+      final int totalWidth = compact ? compactRowWidths(index, rowLength, compactWidths) : 0;
+      int cx = 0;
+      if (compact) {
+        switch (alignment.getConstructor()) {
+          case TdApi.PageBlockHorizontalAlignmentCenter.CONSTRUCTOR:
+            cx = (maxWidth - totalWidth) / 2;
+            break;
+          case TdApi.PageBlockHorizontalAlignmentRight.CONSTRUCTOR:
+            cx = maxWidth - totalWidth;
+            break;
+          case TdApi.PageBlockHorizontalAlignmentLeft.CONSTRUCTOR:
+          default:
+            cx = 0;
+            break;
+        }
+      }
+      for (int i = 0; i < rowLength; i++) {
+        int width = compact ? compactWidths[i] : equalWidth;
+        frameX[index] = cx;
+        frameWidth[index] = width;
+        cx += width + buttonSpacing;
+        index++;
+      }
     }
   }
 
@@ -343,17 +480,21 @@ public class TGInlineKeyboard {
       return;
     }
 
+    if (frameX.length != buttons.size()) {
+      computeFrames();
+    }
+
     int buttonRow = 0;
     int buttonIndex = 0;
     int cy = startY;
     for (TdApi.InlineKeyboardButton[] row : keyboard.rows) {
-      int cx = startX;
-      int buttonWidth = (maxWidth - buttonSpacing * (row.length - 1)) / row.length;
       int buttonColumn = 0;
       for (TdApi.InlineKeyboardButton ignored : row) {
+        if (buttonIndex >= buttons.size() || buttonIndex >= frameX.length) {
+          return;
+        }
         final Button button = buttons.get(buttonIndex);
-        button.draw(view, c, cx, cy, buttonWidth, buttonHeight, strokePadding, rounder, buttonRow, buttonColumn);
-        cx += buttonWidth + buttonSpacing;
+        button.draw(view, c, startX + frameX[buttonIndex], cy, frameWidth[buttonIndex], buttonHeight, strokePadding, rounder, buttonRow, buttonColumn);
         buttonIndex++;
         buttonColumn++;
       }
@@ -402,7 +543,7 @@ public class TGInlineKeyboard {
   }
 
   private void findXYForButton (int index) {
-    if (keyboard == null || index < 0 || index >= buttons.size()) {
+    if (keyboard == null || index < 0 || index >= buttons.size() || index >= frameX.length) {
       return;
     }
 
@@ -410,18 +551,14 @@ public class TGInlineKeyboard {
     final int buttonHeight = getButtonHeight();
     int cy = 0;
 
-    int i = 0;
+    int rowStart = 0;
     for (TdApi.InlineKeyboardButton[] row : keyboard.rows) {
-      final int buttonWidth = (maxWidth - buttonSpacing * (row.length - 1)) / row.length;
-      int cx = 0;
-      for (TdApi.InlineKeyboardButton ignored : row) {
-        if (i++ == index) {
-          activeX = cx;
-          activeY = cy;
-          break;
-        }
-        cx += buttonWidth + buttonSpacing;
+      if (index < rowStart + row.length) {
+        activeX = frameX[index];
+        activeY = cy;
+        return;
       }
+      rowStart += row.length;
       cy += buttonHeight + buttonSpacing;
     }
 
@@ -457,20 +594,16 @@ public class TGInlineKeyboard {
         continue;
       }
 
-      final int buttonWidth = (maxWidth - buttonSpacing * (row.length - 1)) / row.length;
-      int cx = 0;
-      for (TdApi.InlineKeyboardButton ignored : row) {
-        if (x < cx) {
+      for (int i = 0; i < row.length; i++, index++) {
+        if (index >= frameX.length) {
           return -1;
         }
-        if (x > cx + buttonWidth) {
-          cx += buttonWidth + buttonSpacing;
-          index++;
-          continue;
+        final int left = frameX[index];
+        if (x >= left && x <= left + frameWidth[index]) {
+          activeX = left;
+          activeY = cy;
+          return index;
         }
-        activeX = cx;
-        activeY = cy;
-        return index;
       }
 
       return -1;
@@ -514,7 +647,15 @@ public class TGInlineKeyboard {
     private int iconTextColor;
     private float textSizeDp = BUTTON_TEXT_SIZE_DP;
 
-    public Button (TGInlineKeyboard context, @NonNull TGMessage parent, TdApi.InlineKeyboardButton button, int maxWidth) {
+    // Rich label (rich message buttons mixing words and custom emoji)
+    private @Nullable TdApi.FormattedText richLabelSource;
+    private @Nullable Text richLabel;
+    private int richLabelMediaCount;
+    private int richLabelMaxWidth = -1;
+    private boolean richLabelWhiteMode;
+    private int labelTextColor;
+
+    public Button (TGInlineKeyboard context, @NonNull TGMessage parent, TdApi.InlineKeyboardButton button, @Nullable TdApi.FormattedText richLabel, int maxWidth) {
       this.context = context;
       this.parent = parent;
       this.path = new Path();
@@ -531,6 +672,7 @@ public class TGInlineKeyboard {
       this.type = button.type;
       int textMaxWidth = applyIconAndTextFit(text, maxWidth);
       this.wrapper = new EmojiString(text, textMaxWidth, textPaintFor(textSizeDp));
+      setRichLabel(richLabel, maxWidth);
       if (type.getConstructor() == TdApi.InlineKeyboardButtonTypeBuy.CONSTRUCTOR) {
         currencyChar = CurrencyUtils.getCurrencyChar(((TdApi.MessageInvoice) parent.getMessage().content).currency);
         currencyCharWidth = U.measureText(currencyChar, Paints.getBoldTextPaint(CURRENCY_TEXT_SIZE_DP));
@@ -538,12 +680,129 @@ public class TGInlineKeyboard {
     }
 
     public float getPreferredMinWidth () {
+      if (richLabel != null) {
+        // single line, ellipsized when narrow - never asks for a wider keyboard
+        return 0;
+      }
       float minWidth = wrapper.getPreferredMinWidth();
       return minWidth != 0 ? minWidth + getIconFootprint() : 0;
     }
 
     int getMinContentWidth () {
+      if (richLabel != null) {
+        return richLabel.getWidth();
+      }
       return (blankLabel ? 0 : wrapper.getMaxLineWidth()) + getIconFootprint();
+    }
+
+    // Width of a content-sized button in an aligned rich button row
+    int getCompactWidth () {
+      int width = getMinContentWidth() + Screen.dp(RICH_LABEL_PADDING_DP) * 2 + getCornerIndicatorReserve();
+      return Math.max(Screen.dp(MIN_COMPACT_WIDTH_DP), width);
+    }
+
+    private int getCornerIndicatorReserve () {
+      return hasCornerIndicator() ? Screen.dp(8f) : 0;
+    }
+
+    // A lone emoji cell: a custom emoji icon-only button, or a plain label made
+    // of symbols only (a bot grid's fallback when a cell has no custom emoji)
+    boolean isIconLikeCell () {
+      if (richLabel != null || customIconRes != 0) {
+        return false;
+      }
+      if (iconText != null) {
+        return blankLabel;
+      }
+      String text = wrapper != null ? wrapper.getText() : null;
+      if (StringUtils.isEmpty(text)) {
+        return false;
+      }
+      for (int i = 0; i < text.length(); ) {
+        int codePoint = text.codePointAt(i);
+        if (Character.isLetterOrDigit(codePoint) || Character.isWhitespace(codePoint)) {
+          return false;
+        }
+        i += Character.charCount(codePoint);
+      }
+      return true;
+    }
+
+    private static final float RICH_LABEL_PADDING_DP = 12f;
+
+    private void setRichLabel (@Nullable TdApi.FormattedText source, int maxWidth) {
+      final int labelMaxWidth = Math.max(0, maxWidth - Screen.dp(8f) * 2 - getCornerIndicatorReserve());
+      final boolean whiteMode = useWhiteMode();
+      if (source == null) {
+        this.richLabelSource = null;
+        this.richLabelMediaCount = 0;
+        this.richLabelMaxWidth = -1;
+        if (richLabel != null) {
+          richLabel.performDestroy();
+          richLabel = null;
+        }
+        return;
+      }
+      if (richLabel != null && labelMaxWidth == richLabelMaxWidth && whiteMode == richLabelWhiteMode && sameFormattedText(source, richLabelSource)) {
+        return;
+      }
+      if (richLabel != null) {
+        richLabel.performDestroy();
+      }
+      this.richLabelSource = source;
+      this.richLabelMaxWidth = labelMaxWidth;
+      this.richLabelWhiteMode = whiteMode;
+      this.richLabelMediaCount = countCustomEmoji(source);
+      TdApi.FormattedText text = source;
+      if (!whiteMode) {
+        // Classic (non-bubble) keyboards use upper case; keep entity offsets valid
+        String upper = source.text.toUpperCase();
+        if (upper.length() == source.text.length()) {
+          text = new TdApi.FormattedText(upper, source.entities);
+        }
+      }
+      this.richLabel = new Text.Builder(parent.tdlib(), text, null, Math.max(1, labelMaxWidth), Paints.robotoStyleProvider(15f), () -> labelTextColor, (label, specificMedia) -> context.invalidateIconTextMedia(label, specificMedia))
+        .singleLine()
+        .ignoreNewLines()
+        .allBold()
+        .build();
+    }
+
+    private static int countCustomEmoji (@NonNull TdApi.FormattedText text) {
+      int count = 0;
+      if (text.entities != null) {
+        for (TdApi.TextEntity entity : text.entities) {
+          if (entity.type.getConstructor() == TdApi.TextEntityTypeCustomEmoji.CONSTRUCTOR) {
+            count++;
+          }
+        }
+      }
+      return count;
+    }
+
+    private static boolean sameFormattedText (@Nullable TdApi.FormattedText a, @Nullable TdApi.FormattedText b) {
+      if (a == b) {
+        return true;
+      }
+      if (a == null || b == null || !StringUtils.equalsOrBothEmpty(a.text, b.text)) {
+        return false;
+      }
+      int aCount = a.entities != null ? a.entities.length : 0;
+      int bCount = b.entities != null ? b.entities.length : 0;
+      if (aCount != bCount) {
+        return false;
+      }
+      for (int i = 0; i < aCount; i++) {
+        TdApi.TextEntity x = a.entities[i], y = b.entities[i];
+        if (x.offset != y.offset || x.length != y.length || x.type.getConstructor() != y.type.getConstructor()) {
+          return false;
+        }
+        if (x.type.getConstructor() == TdApi.TextEntityTypeCustomEmoji.CONSTRUCTOR &&
+          ((TdApi.TextEntityTypeCustomEmoji) x.type).customEmojiId != ((TdApi.TextEntityTypeCustomEmoji) y.type).customEmojiId) {
+          return false;
+        }
+      }
+      return true;
     }
 
     private int getIconFootprint () {
@@ -560,14 +819,23 @@ public class TGInlineKeyboard {
     }
 
     boolean hasIconTextMedia () {
-      return iconText != null;
+      return iconText != null || (richLabel != null && richLabel.hasMedia());
     }
 
-    void requestIconTextMedia (ComplexReceiver receiver, int index) {
-      if (iconText != null) {
-        iconText.requestMedia(receiver, index, 1);
+    int getTextMediaKeyCount () {
+      return richLabel != null ? Math.max(1, richLabelMediaCount) : 1;
+    }
+
+    void requestIconTextMedia (ComplexReceiver receiver, int key, int keyCount) {
+      if (richLabel != null) {
+        int used = richLabel.hasMedia() ? richLabel.requestMedia(receiver, key, keyCount) : 0;
+        if (used < keyCount) {
+          receiver.clearReceiversRange(key + used, key + keyCount);
+        }
+      } else if (iconText != null) {
+        iconText.requestMedia(receiver, key, 1);
       } else {
-        receiver.clearReceivers(index);
+        receiver.clearReceivers(key);
       }
     }
 
@@ -575,6 +843,10 @@ public class TGInlineKeyboard {
       if (iconText != null) {
         iconText.performDestroy();
         iconText = null;
+      }
+      if (richLabel != null) {
+        richLabel.performDestroy();
+        richLabel = null;
       }
     }
 
@@ -720,7 +992,7 @@ public class TGInlineKeyboard {
       return useWhiteMode() ? text : text.toUpperCase();
     }
 
-    public void set (TdApi.InlineKeyboardButton button, int maxWidth) {
+    public void set (TdApi.InlineKeyboardButton button, @Nullable TdApi.FormattedText richLabel, int maxWidth) {
       this.type = button.type;
       this.styleColorId = resolveStyleColorId(button.style);
       String text = uppercase(cleanButtonText(button.text));
@@ -749,6 +1021,7 @@ public class TGInlineKeyboard {
       if (reset || wrapper.getMaxWidth() != textMaxWidth || oldTextSizeDp != this.textSizeDp) {
         this.wrapper = new EmojiString(uppercase(text), textMaxWidth, textPaintFor(this.textSizeDp));
       }
+      setRichLabel(richLabel, maxWidth);
       if (reset || !Td.equalsTo(type, button.type)) {
         if (contextId == Integer.MAX_VALUE) {
           contextId = 0;
@@ -897,7 +1170,15 @@ public class TGInlineKeyboard {
         ColorUtils.fromToArgb(buttonColorId != ColorId.NONE ? Theme.getColor(buttonColorId) : Theme.inlineTextColor(isOutBubble), Theme.inlineTextActiveColor(), textColorFactor);
 
       int textX = cx + getButtonPadding();
-      if (customIconRes != 0) {
+      if (richLabel != null) {
+        // Rich label: words and custom emoji in the bot's order, centered
+        // (left of the corner indicator, when there is one)
+        this.labelTextColor = textColor;
+        int availWidth = buttonWidth - getCornerIndicatorReserve();
+        int labelX = cx + Math.max(0, (availWidth - richLabel.getWidth()) / 2);
+        int labelY = cy + (buttonHeight - richLabel.getHeight()) / 2;
+        richLabel.draw(c, labelX, labelY, null, 1f, context.useContentTextMedia ? view.getTextMediaReceiver() : view.getReplyMarkupTextMediaReceiver(true));
+      } else if (customIconRes != 0) {
         Drawable drawable = view.getSparseDrawable(customIconRes, ColorId.NONE);
         int iconWidth = drawable.getMinimumWidth();
         int contentWidth = wrapper.getTextWidth();
@@ -948,8 +1229,15 @@ public class TGInlineKeyboard {
         this.iconTextColor = textColor;
         iconText.draw(c, iconX, cy + (buttonHeight - iconHeight) / 2 + Screen.dp(1.5f), null, 1f, context.useContentTextMedia ? view.getTextMediaReceiver() : view.getReplyMarkupTextMediaReceiver(true));
       }
-      Paints.getBoldPaint14(needFakeBold, Theme.inlineTextColor(isOutBubble));
-      wrapper.draw(c, textX, cy + Screen.dp(12f + (BUTTON_TEXT_SIZE_DP - textSizeDp) / 2f), textColor, true);
+      if (richLabel == null) {
+        if (customIconRes == 0 && iconText == null && wrapper.getWidth() != buttonWidth - getButtonPadding() * 2) {
+          // Content-sized frame of an aligned rich button row: the label was
+          // laid out (centered) for another width, centre that box in the frame
+          textX = cx + (buttonWidth - getCornerIndicatorReserve() - wrapper.getWidth()) / 2;
+        }
+        Paints.getBoldPaint14(needFakeBold, Theme.inlineTextColor(isOutBubble));
+        wrapper.draw(c, textX, cy + Screen.dp(12f + (BUTTON_TEXT_SIZE_DP - textSizeDp) / 2f), textColor, true);
+      }
 
       if (type != null) {
         int iconColor = fillWithStyle ? textColor : buttonColorId != ColorId.NONE ? Theme.getColor(buttonColorId) : Theme.inlineIconColor(isOutBubble);

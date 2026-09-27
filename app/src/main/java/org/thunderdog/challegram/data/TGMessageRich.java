@@ -146,23 +146,109 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
     final TGInlineKeyboard keyboard;
     final TdApi.ReplyMarkupInlineKeyboard markup;
 
-    ButtonRowPart (TdApi.InlineButton[] buttons) {
+    ButtonRowPart (TdApi.InlineButton[] buttons, @Nullable TdApi.PageBlockHorizontalAlignment align) {
       TdApi.InlineKeyboardButton[] row = new TdApi.InlineKeyboardButton[buttons.length];
+      TdApi.FormattedText[] richLabels = new TdApi.FormattedText[buttons.length];
+      boolean hasRichLabels = false;
       for (int i = 0; i < buttons.length; i++) {
         TdApi.InlineButton button = buttons[i];
-        // A custom emoji in the button text becomes the button icon (the
-        // plain-text flattening drops it otherwise - icon-only buttons of a
-        // bot grid rendered blank)
-        long iconCustomEmojiId = firstCustomEmojiId(button.text);
-        String label = TD.richTextToString(button.text);
-        label = label != null ? label.trim() : "";
+        TdApi.FormattedText emojiText = buttonLabelText(TD.formattedTextFromRichText(button.text));
+        TdApi.TextEntity firstEmoji = null;
+        int emojiCount = 0;
+        if (emojiText.entities != null) {
+          for (TdApi.TextEntity entity : emojiText.entities) {
+            if (entity.type.getConstructor() == TdApi.TextEntityTypeCustomEmoji.CONSTRUCTOR) {
+              if (firstEmoji == null) {
+                firstEmoji = entity;
+              }
+              emojiCount++;
+            }
+          }
+        }
+        long iconCustomEmojiId = 0;
+        String label;
+        if (emojiCount == 0) {
+          label = TD.richTextToString(button.text);
+          label = label != null ? label.trim() : "";
+        } else if (emojiCount == 1 && isBlankAround(emojiText, firstEmoji)) {
+          // A lone custom emoji: an icon-only button (bot grids keep the
+          // big centered icon)
+          iconCustomEmojiId = ((TdApi.TextEntityTypeCustomEmoji) firstEmoji.type).customEmojiId;
+          label = "";
+        } else {
+          // Words and custom emoji: drawn as rich text with the emoji where
+          // the bot put them ("Bestiary: <emoji>"), not as a leading icon
+          richLabels[i] = emojiText;
+          hasRichLabels = true;
+          label = emojiText.text;
+        }
         row[i] = new TdApi.InlineKeyboardButton(label.isEmpty() ? " " : label, iconCustomEmojiId, button.style, button.type);
       }
       this.markup = new TdApi.ReplyMarkupInlineKeyboard(new TdApi.InlineKeyboardButton[][] {row}, false);
       this.keyboard = new TGInlineKeyboard(TGMessageRich.this, false);
       this.keyboard.setUseContentTextMedia(true);
+      this.keyboard.setRichLabels(hasRichLabels ? richLabels : null);
+      this.keyboard.setAlignment(align);
       this.keyboard.setViewProvider(currentViews);
     }
+  }
+
+  // Button label: custom emoji and text styles (italic, underline,
+  // strikethrough; the whole label is bold anyway) survive, links, mentions,
+  // hashtags and code do not - a button is not a link. Trimmed of
+  // surrounding whitespace; entities sorted outer-first for the renderer.
+  private static TdApi.FormattedText buttonLabelText (TdApi.FormattedText text) {
+    String source = text.text != null ? text.text : "";
+    int start = 0, end = source.length();
+    while (start < end && Character.isWhitespace(source.charAt(start))) {
+      start++;
+    }
+    while (end > start && Character.isWhitespace(source.charAt(end - 1))) {
+      end--;
+    }
+    ArrayList<TdApi.TextEntity> entities = new ArrayList<>();
+    if (text.entities != null) {
+      for (TdApi.TextEntity entity : text.entities) {
+        switch (entity.type.getConstructor()) {
+          case TdApi.TextEntityTypeCustomEmoji.CONSTRUCTOR:
+            if (entity.offset >= start && entity.offset + entity.length <= end) {
+              entities.add(new TdApi.TextEntity(entity.offset - start, entity.length, entity.type));
+            }
+            break;
+          case TdApi.TextEntityTypeItalic.CONSTRUCTOR:
+          case TdApi.TextEntityTypeUnderline.CONSTRUCTOR:
+          case TdApi.TextEntityTypeStrikethrough.CONSTRUCTOR: {
+            int from = Math.max(entity.offset, start);
+            int to = Math.min(entity.offset + entity.length, end);
+            if (to > from) {
+              entities.add(new TdApi.TextEntity(from - start, to - from, entity.type));
+            }
+            break;
+          }
+        }
+      }
+    }
+    Collections.sort(entities, (a, b) -> {
+      if (a.offset != b.offset) {
+        return Integer.compare(a.offset, b.offset);
+      }
+      if (a.length != b.length) {
+        return Integer.compare(b.length, a.length);
+      }
+      // Same range: the custom emoji goes inside the style, or it is lost
+      boolean aEmoji = a.type.getConstructor() == TdApi.TextEntityTypeCustomEmoji.CONSTRUCTOR;
+      boolean bEmoji = b.type.getConstructor() == TdApi.TextEntityTypeCustomEmoji.CONSTRUCTOR;
+      return Boolean.compare(aEmoji, bEmoji);
+    });
+    return new TdApi.FormattedText(source.substring(start, end), entities.isEmpty() ? null : entities.toArray(new TdApi.TextEntity[0]));
+  }
+
+  // Nothing visible besides the given entity (bots pad icon-only buttons with
+  // blank characters because the text may not be empty)
+  private static boolean isBlankAround (TdApi.FormattedText text, TdApi.TextEntity entity) {
+    String before = text.text.substring(0, entity.offset);
+    String after = text.text.substring(entity.offset + entity.length);
+    return TGInlineKeyboard.isBlankText(before + after);
   }
 
   public static ArrayList<TdApi.PageBlock> collectMediaBlocks (TdApi.RichMessage richMessage) {
@@ -368,7 +454,7 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
         TdApi.PageBlockButtonRow buttonRow = (TdApi.PageBlockButtonRow) block;
         if (buttonRow.buttons != null && buttonRow.buttons.length > 0) {
           flushTextRun(textRun);
-          parts.add(new ButtonRowPart(buttonRow.buttons));
+          parts.add(new ButtonRowPart(buttonRow.buttons, buttonRow.align));
         }
         break;
       }
@@ -613,7 +699,7 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
             // whitespace between buttons keeps the row together
             continue;
           }
-          parts.add(new ButtonRowPart(buttons.toArray(new TdApi.InlineButton[0])));
+          parts.add(new ButtonRowPart(buttons.toArray(new TdApi.InlineButton[0]), null));
           buttons.clear();
         }
         text.append(chunk);
@@ -623,7 +709,7 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
       addTextPart(text.build());
     }
     if (!buttons.isEmpty()) {
-      parts.add(new ButtonRowPart(buttons.toArray(new TdApi.InlineButton[0])));
+      parts.add(new ButtonRowPart(buttons.toArray(new TdApi.InlineButton[0]), null));
     }
   }
 
@@ -1295,40 +1381,5 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
       }
     }
     textMediaReceiver.clearReceiversWithHigherKey(nextKey);
-  }
-
-  private static long firstCustomEmojiId (@Nullable TdApi.RichText richText) {
-    if (richText == null) {
-      return 0;
-    }
-    switch (richText.getConstructor()) {
-      case TdApi.RichTextCustomEmoji.CONSTRUCTOR:
-        return ((TdApi.RichTextCustomEmoji) richText).customEmojiId;
-      case TdApi.RichTexts.CONSTRUCTOR: {
-        TdApi.RichText[] texts = ((TdApi.RichTexts) richText).texts;
-        if (texts != null) {
-          for (TdApi.RichText inner : texts) {
-            long id = firstCustomEmojiId(inner);
-            if (id != 0) {
-              return id;
-            }
-          }
-        }
-        return 0;
-      }
-      case TdApi.RichTextBold.CONSTRUCTOR:
-        return firstCustomEmojiId(((TdApi.RichTextBold) richText).text);
-      case TdApi.RichTextItalic.CONSTRUCTOR:
-        return firstCustomEmojiId(((TdApi.RichTextItalic) richText).text);
-      case TdApi.RichTextUnderline.CONSTRUCTOR:
-        return firstCustomEmojiId(((TdApi.RichTextUnderline) richText).text);
-      case TdApi.RichTextStrikethrough.CONSTRUCTOR:
-        return firstCustomEmojiId(((TdApi.RichTextStrikethrough) richText).text);
-      case TdApi.RichTextMarked.CONSTRUCTOR:
-        return firstCustomEmojiId(((TdApi.RichTextMarked) richText).text);
-      case TdApi.RichTextSpoiler.CONSTRUCTOR:
-        return firstCustomEmojiId(((TdApi.RichTextSpoiler) richText).text);
-    }
-    return 0;
   }
 }
