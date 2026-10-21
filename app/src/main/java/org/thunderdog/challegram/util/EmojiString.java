@@ -124,6 +124,25 @@ public class EmojiString {
     return preferredMinWidth;
   }
 
+  /**
+   * True when a line ends inside a word, between two letters or digits: the
+   * word was wider than the layout, so StaticLayout split it. Breaks after a
+   * space, a newline, a hyphen or a slash are regular line breaks and pass.
+   */
+  public boolean hasBrokenWord () {
+    int lineCount = layout.getLineCount();
+    CharSequence laidOut = layout.getText();
+    for (int i = 0; i < lineCount - 1; i++) {
+      int end = layout.getLineEnd(i);
+      if (end > 0 && end < laidOut.length() &&
+        Character.isLetterOrDigit(Character.codePointBefore(laidOut, end)) &&
+        Character.isLetterOrDigit(Character.codePointAt(laidOut, end))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   public int getWidth () {
     return layout.getWidth();
   }

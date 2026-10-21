@@ -671,7 +671,8 @@ public class TGInlineKeyboard {
       this.styleColorId = resolveStyleColorId(button.style);
       this.type = button.type;
       int textMaxWidth = applyIconAndTextFit(text, maxWidth);
-      this.wrapper = new EmojiString(text, textMaxWidth, textPaintFor(textSizeDp));
+      EmojiString fitted = takeFittedWrapper();
+      this.wrapper = fitted != null ? fitted : new EmojiString(text, textMaxWidth, textPaintFor(textSizeDp));
       setRichLabel(richLabel, maxWidth);
       if (type.getConstructor() == TdApi.InlineKeyboardButtonTypeBuy.CONSTRUCTOR) {
         currencyChar = CurrencyUtils.getCurrencyChar(((TdApi.MessageInvoice) parent.getMessage().content).currency);
@@ -810,7 +811,7 @@ public class TGInlineKeyboard {
         return 0;
       }
       int spacing = blankLabel ? 0 : Screen.dp(ICON_SPACING_DP);
-      if (compactIcons) {
+      if (useInFlowIcon()) {
         // In-flow icon: no edge padding, no corner inset - it sits by the label
         return iconText.getWidth() + spacing;
       }
@@ -863,8 +864,19 @@ public class TGInlineKeyboard {
     // icon, fall back to the small in-flow icon when the widest word cannot fit
     private int lastFitMaxWidth;
 
+    // The label laid out by the last fit at the size it settled on; the caller
+    // takes it as the wrapper instead of laying the text out a second time
+    private @Nullable EmojiString fittedWrapper;
+
+    private @Nullable EmojiString takeFittedWrapper () {
+      EmojiString result = fittedWrapper;
+      fittedWrapper = null;
+      return result;
+    }
+
     private int applyIconAndTextFit (String text, int maxWidth) {
       this.lastFitMaxWidth = maxWidth;
+      this.fittedWrapper = null;
       if (blankLabel) {
         // Invisible placeholders measure as fake words and must not shrink the icon
         this.textSizeDp = BUTTON_TEXT_SIZE_DP;
@@ -940,7 +952,15 @@ public class TGInlineKeyboard {
         // Default size must be measured at the actual render size of
         // Paints.getBoldPaint14, which is 15dp in both of its branches
         paint.setTextSize(size == BUTTON_TEXT_SIZE_DP ? Screen.dp(15f) : Screen.dpf(size));
-        if (maxWordWidth(text, paint) <= availWidth) {
+        if (maxWordWidth(text, paint) > availWidth) {
+          continue;
+        }
+        // The measurement is a prediction; the layout itself has the last word
+        // (rounding, emoji spans), so a size counts only when it really keeps
+        // every word whole
+        EmojiString candidate = new EmojiString(text, availWidth, textPaintFor(size));
+        if (!candidate.hasBrokenWord()) {
+          this.fittedWrapper = candidate;
           return size;
         }
       }
@@ -1018,7 +1038,10 @@ public class TGInlineKeyboard {
       this.needFakeBold = Text.needFakeBold(text);
       final float oldTextSizeDp = this.textSizeDp;
       final int textMaxWidth = applyIconAndTextFit(text, maxWidth);
-      if (reset || wrapper.getMaxWidth() != textMaxWidth || oldTextSizeDp != this.textSizeDp) {
+      EmojiString fitted = takeFittedWrapper();
+      if (fitted != null) {
+        this.wrapper = fitted;
+      } else if (reset || wrapper.getMaxWidth() != textMaxWidth || oldTextSizeDp != this.textSizeDp) {
         this.wrapper = new EmojiString(uppercase(text), textMaxWidth, textPaintFor(this.textSizeDp));
       }
       setRichLabel(richLabel, maxWidth);
@@ -1070,6 +1093,15 @@ public class TGInlineKeyboard {
 
     private float preferredIconSizeDp () {
       return compactIcons ? BUTTON_TEXT_SIZE_DP : ICON_TEXT_SIZE_DP;
+    }
+
+    // A small icon always sits in the flow next to the label: the compact
+    // setting, and the big-icon mode once it fell back to the small icon. The
+    // fallback used to keep the edge-pinned geometry, 4dp wider than the
+    // compact look, and that was enough for a label that fits with compact
+    // icons to break mid-word with big icons on
+    private boolean useInFlowIcon () {
+      return compactIcons || (iconText != null && iconSizeDp == BUTTON_TEXT_SIZE_DP);
     }
 
     // Bots must send non-empty button text, so icon-only buttons carry an
@@ -1201,7 +1233,7 @@ public class TGInlineKeyboard {
         int iconX;
         if (contentWidth <= 0 || blankLabel) {
           iconX = cx + (buttonWidth - iconWidth) / 2;
-        } else if (compactIcons) {
+        } else if (useInFlowIcon()) {
           // Classic look: icon and label centered together as one group
           int spacing = Screen.dp(ICON_SPACING_DP);
           int groupLeft = cx + (buttonWidth - (iconWidth + spacing + contentWidth)) / 2;
