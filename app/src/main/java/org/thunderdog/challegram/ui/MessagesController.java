@@ -3084,6 +3084,7 @@ public class MessagesController extends ViewController<MessagesController.Argume
     }
     ignoreDraftLoad = false;
     discardAttachedFiles(false);
+    botChatHasMessages = chat != null && chat.lastMessage != null;
     updateBottomBar(false);
 
     closeCommandsKeyboard(false);
@@ -3091,6 +3092,7 @@ public class MessagesController extends ViewController<MessagesController.Argume
     if (previewSearchSender == null) {
       manager.openChat(chat, messageThread, messageTopicId, previewSearchFilter, this, areScheduled, !inPreviewMode && !isInForceTouchMode());
     }
+    checkBotStartButton(false);
 
     updateShadowColor();
     if (scheduleButton != null && scheduleButton.setVisible(messageThread == null && tdlib.chatHasScheduled(chat.id))) {
@@ -11127,6 +11129,30 @@ public class MessagesController extends ViewController<MessagesController.Argume
     });
   }
 
+  // Whether the bot chat had a last message when the bottom bar was last
+  // evaluated. The bot "Start" button is shown while the chat has no last
+  // message (updateBottomBar); a bot that replaces its screen message -
+  // deletes the old one, sends a new one - empties the chat for a moment,
+  // and "Start" shown in that moment used to stay over the live chat, as the
+  // bar was never re-evaluated on messages
+  private boolean botChatHasMessages;
+
+  // Follows a message appearing in a bot chat. An emptied chat is left alone:
+  // the first show of the action button drops typed text and closes the
+  // keyboard, and the next screen message arrives right away
+  private void checkBotStartButton (boolean animated) {
+    if (chat == null || inPreviewMode || isInForceTouchMode() || !tdlib.isBotChat(chat)) {
+      return;
+    }
+    boolean hasMessages = chat.lastMessage != null;
+    if (hasMessages != botChatHasMessages) {
+      botChatHasMessages = hasMessages;
+      if (hasMessages) {
+        updateBottomBar(animated);
+      }
+    }
+  }
+
   @Override
   public void onChatTopMessageChanged (final long chatId, @Nullable final TdApi.Message topMessage) {
     runOnUiThreadOptional(() -> {
@@ -11134,6 +11160,7 @@ public class MessagesController extends ViewController<MessagesController.Argume
         if (topMessage == null) {
           manager.onMissedMessagesHintReceived();
         }
+        checkBotStartButton(true);
       }
     });
   }
