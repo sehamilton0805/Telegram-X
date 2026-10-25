@@ -368,6 +368,15 @@ public class MessagesController extends ViewController<MessagesController.Argume
   private CameraAccessImageView mediaButton;
   private InvisibleImageView cameraButton, scheduleButton;
   private InvisibleImageView commandButton;
+
+  // Compact input bar (Settings): the left slot (emojiButton's view) shows
+  // the bot commands button instead of the emoji one, and the camera, attach
+  // and emoji buttons on the right collapse into attachMenuButton, which
+  // opens a small menu. Read once per screen, like the big-icons setting
+  private final boolean compactInputBar = Settings.instance().useCompactInputBar();
+  private ImageView attachMenuButton;
+  private int commandSlotResource;
+  private boolean commandSlotVisible = true;
   private @Nullable SilentButton silentButton;
 
   private HapticMenuHelper sendAsMenu;
@@ -1288,7 +1297,13 @@ public class MessagesController extends ViewController<MessagesController.Argume
     emojiButton = new ImageView(context);
     emojiButton.setId(R.id.msg_emoji);
     emojiButton.setScaleType(ImageView.ScaleType.CENTER);
-    emojiButton.setImageResource(EmojiLayout.getTargetIcon(true));
+    if (compactInputBar) {
+      // Left slot: bot commands, shown by updateCommandButton
+      emojiButton.setImageResource(R.drawable.deproko_baseline_bots_command_26);
+      emojiButton.setAlpha(0f);
+    } else {
+      emojiButton.setImageResource(EmojiLayout.getTargetIcon(true));
+    }
     emojiButton.setColorFilter(Theme.iconColor());
     addThemeFilterListener(emojiButton, ColorId.icon);
     emojiButton.setOnClickListener(this);
@@ -1348,6 +1363,18 @@ public class MessagesController extends ViewController<MessagesController.Argume
     mediaButton.setOnClickListener(this);
     mediaButton.setLayoutParams(lp);
 
+    if (compactInputBar) {
+      attachMenuButton = new ImageView(context);
+      attachMenuButton.setId(R.id.btn_attachMenu);
+      attachMenuButton.setScaleType(ImageView.ScaleType.CENTER);
+      attachMenuButton.setImageResource(R.drawable.deproko_baseline_attach_26);
+      attachMenuButton.setColorFilter(Theme.iconColor());
+      addThemeFilterListener(attachMenuButton, ColorId.icon);
+      attachMenuButton.setOnClickListener(this);
+      attachMenuButton.setLayoutParams(lp);
+      Views.setClickable(attachMenuButton);
+    }
+
 
     lp = new LinearLayout.LayoutParams(Screen.dp(ATTACH_BUTTONS_WIDTH), Screen.dp(49f));
     cameraButton = new CameraAccessImageView(context, this);
@@ -1404,17 +1431,23 @@ public class MessagesController extends ViewController<MessagesController.Argume
     addThemeInvalidateListener(recordButton);
     recordButton.setLayoutParams(lp);
 
-    attachButtons.addView(commandButton);
+    if (!compactInputBar) {
+      attachButtons.addView(commandButton);
+    }
     if (silentButton != null) {
       attachButtons.addView(silentButton);
     }
     if (scheduleButton != null) {
       attachButtons.addView(scheduleButton);
     }
-    if (cameraButton != null) {
-      attachButtons.addView(cameraButton);
+    if (compactInputBar) {
+      attachButtons.addView(attachMenuButton);
+    } else {
+      if (cameraButton != null) {
+        attachButtons.addView(cameraButton);
+      }
+      attachButtons.addView(mediaButton);
     }
-    attachButtons.addView(mediaButton);
     attachButtons.addView(recordButton);
     attachButtons.updatePivot();
 
@@ -2268,7 +2301,19 @@ public class MessagesController extends ViewController<MessagesController.Argume
     } else if (viewId == R.id.btn_chatAction) {
       processChatAction();
     } else if (viewId == R.id.msg_emoji) {
-      toggleEmojiKeyboard();
+      if (compactInputBar) {
+        if (commandSlotResource != 0 && commandSlotVisible) {
+          onCommandButtonClick();
+        }
+      } else {
+        toggleEmojiKeyboard();
+      }
+    } else if (viewId == R.id.btn_attachMenu) {
+      if (emojiShown) {
+        closeEmojiKeyboard();
+      } else {
+        showAttachMenu();
+      }
     } else if (viewId == R.id.msg_attach) {
       hideBottomHint();
       openMediaView(false, false);
@@ -2291,18 +2336,7 @@ public class MessagesController extends ViewController<MessagesController.Argume
     } else if (viewId == R.id.btn_reaction) {
       manager.scrollToNextUnreadReaction();
     } else if (viewId == R.id.msg_command) {
-      // FIXME: rely on some state, not on icon id
-      if (lastCmdResource == R.drawable.deproko_baseline_bots_command_26) {
-        if (webAppMenuButton != null && webAppMenuButtonBotUserId != 0) {
-          openWebAppByUrl(webAppMenuButtonBotUserId, null, webAppMenuButton.url);
-        } else {
-          onCommandClick();
-        }
-      } else if (lastCmdResource == R.drawable.deproko_baseline_bots_keyboard_26 ||
-        lastCmdResource == R.drawable.baseline_direction_arrow_down_24 ||
-        lastCmdResource == R.drawable.baseline_keyboard_24) {
-        toggleCommandsKeyboard();
-      }
+      onCommandButtonClick();
     } else if (viewId == R.id.btn_search_prev) {
       manager.moveToNextResult(false);
     } else if (viewId == R.id.btn_search_next) {
@@ -3098,6 +3132,7 @@ public class MessagesController extends ViewController<MessagesController.Argume
     if (scheduleButton != null && scheduleButton.setVisible(messageThread == null && tdlib.chatHasScheduled(chat.id))) {
       commandButton.setTranslationX(scheduleButton.isVisible() ? 0 : scheduleButton.getLayoutParams().width);
       attachButtons.updatePivot();
+      updateCompactAttachPadding();
     }
 
     // Preloading data so profile will not jump when opening
@@ -3576,8 +3611,11 @@ public class MessagesController extends ViewController<MessagesController.Argume
         replyBarView.setVisibility(View.VISIBLE);
       }
       emojiButton.setVisibility(View.VISIBLE);
+      if (compactInputBar) {
+        applyCommandSlot();
+      }
       if (notEmpty) {
-        attachButtons.setVisibility(View.INVISIBLE);
+        attachButtons.setVisibility(compactInputBar ? View.VISIBLE : View.INVISIBLE);
         sendButton.setVisibility(View.VISIBLE);
         messageSenderButton.setVisibility(View.INVISIBLE);
       } else {
@@ -3714,7 +3752,8 @@ public class MessagesController extends ViewController<MessagesController.Argume
     if (inputView != null && inputView.getVisibility() == View.VISIBLE) {
       int inputY = Views.getLocationInWindow(inputView)[1] - baseY;
       if (y >= inputY && y < inputY + inputView.getMeasuredHeight()) {
-        return x < emojiButton.getMeasuredWidth() || inputView.isEmpty();
+        int leftSlot = compactInputBar && emojiButton.getVisibility() != View.VISIBLE ? 0 : emojiButton.getMeasuredWidth();
+        return x < leftSlot || inputView.isEmpty();
       }
     }
 
@@ -6442,6 +6481,9 @@ public class MessagesController extends ViewController<MessagesController.Argume
     displayEmojiButton();
 
     actionShowing = false;
+    if (compactInputBar) {
+      applyCommandSlot();
+    }
   }
 
   private void processChatAction () {
@@ -7751,6 +7793,11 @@ public class MessagesController extends ViewController<MessagesController.Argume
   }
 
   public void updateCommandButton (boolean isVisible) {
+    if (compactInputBar) {
+      commandSlotVisible = isVisible;
+      applyCommandSlot();
+      return;
+    }
     boolean ok = setCameraVisible(!isVisible || !ChatId.isUserChat(getChatId()));
     if (commandButton.setVisible(isVisible) || ok) {
       attachButtons.updatePivot();
@@ -7758,6 +7805,15 @@ public class MessagesController extends ViewController<MessagesController.Argume
   }
 
   private void updateCommandButton (int resource) {
+    if (compactInputBar) {
+      commandSlotResource = resource;
+      if (resource != 0 && lastCmdResource != resource) {
+        lastCmdResource = resource;
+        emojiButton.setImageResource(resource);
+      }
+      applyCommandSlot();
+      return;
+    }
     if (resource == 0) {
       if (commandButton.setVisible(false)) {
         attachButtons.updatePivot();
@@ -7770,6 +7826,104 @@ public class MessagesController extends ViewController<MessagesController.Argume
     if (lastCmdResource != resource) {
       lastCmdResource = resource;
       commandButton.setImageResource(resource);
+    }
+  }
+
+  // Compact bar: the left slot is visible only while there is a commands
+  // button to show; otherwise the input text starts near the left edge
+  private void applyCommandSlot () {
+    boolean visible = commandSlotResource != 0 && commandSlotVisible && !actionShowing;
+    emojiButton.setAlpha(visible ? 1f : 0f);
+    // An invisible-by-alpha view would still swallow taps over the input
+    // field's left edge; INVISIBLE lets them through
+    if (emojiButton.getVisibility() != View.GONE) {
+      emojiButton.setVisibility(visible ? View.VISIBLE : View.INVISIBLE);
+    }
+    if (inputView != null) {
+      int slot = Screen.dp(visible ? 60f : 12f);
+      if (Lang.rtl()) {
+        if (inputView.getPaddingRight() != slot) {
+          inputView.setPadding(inputView.getPaddingLeft(), inputView.getPaddingTop(), slot, inputView.getPaddingBottom());
+        }
+      } else if (inputView.getPaddingLeft() != slot) {
+        inputView.setPadding(slot, inputView.getPaddingTop(), inputView.getPaddingRight(), inputView.getPaddingBottom());
+      }
+    }
+    updateCompactAttachPadding();
+  }
+
+  // Compact bar: the right group no longer fades while typing, so the text
+  // must stop before it; the stock 55dp only covered the send button
+  private void updateCompactAttachPadding () {
+    if (!compactInputBar || inputView == null || attachButtons == null) {
+      return;
+    }
+    int pad = Math.max(Screen.dp(55f), getHorizontalInputPadding() + Screen.dp(2f));
+    if (Lang.rtl()) {
+      if (inputView.getPaddingLeft() != pad) {
+        inputView.setPadding(pad, inputView.getPaddingTop(), inputView.getPaddingRight(), inputView.getPaddingBottom());
+      }
+    } else if (inputView.getPaddingRight() != pad) {
+      inputView.setPadding(inputView.getPaddingLeft(), inputView.getPaddingTop(), pad, inputView.getPaddingBottom());
+    }
+  }
+
+  private void onCommandButtonClick () {
+    // FIXME: rely on some state, not on icon id
+    if (lastCmdResource == R.drawable.deproko_baseline_bots_command_26) {
+      if (webAppMenuButton != null && webAppMenuButtonBotUserId != 0) {
+        openWebAppByUrl(webAppMenuButtonBotUserId, null, webAppMenuButton.url);
+      } else {
+        onCommandClick();
+      }
+    } else if (lastCmdResource == R.drawable.deproko_baseline_bots_keyboard_26 ||
+      lastCmdResource == R.drawable.baseline_direction_arrow_down_24 ||
+      lastCmdResource == R.drawable.baseline_keyboard_24) {
+      toggleCommandsKeyboard();
+    }
+  }
+
+  // Compact bar: one button for everything that used to sit on the right
+  private void showAttachMenu () {
+    IntList ids = new IntList(3);
+    StringList strings = new StringList(3);
+    IntList icons = new IntList(3);
+    ids.append(R.id.msg_emoji);
+    strings.append(R.string.AttachMenuEmoji);
+    icons.append(R.drawable.baseline_emoticon_24);
+    if (isCameraButtonVisibleOnAttachPanel()) {
+      ids.append(R.id.btn_camera);
+      strings.append(R.string.AttachMenuCamera);
+      icons.append(R.drawable.baseline_camera_alt_24);
+    }
+    ids.append(R.id.msg_attach);
+    strings.append(R.string.AttachMenuFile);
+    icons.append(R.drawable.baseline_insert_drive_file_24);
+    showOptions(null, ids.get(), strings.get(), null, icons.get(), (itemView, id) -> {
+      if (id == R.id.msg_emoji) {
+        toggleEmojiKeyboard();
+      } else if (id == R.id.btn_camera) {
+        if (!showPhotoVideoRestriction(attachMenuButton)) {
+          openInAppCamera(new CameraOpenOptions().anchor(attachMenuButton).noTrace(isSecretChat()));
+        }
+      } else if (id == R.id.msg_attach) {
+        hideBottomHint();
+        openMediaView(false, false);
+      }
+      return true;
+    });
+  }
+
+  // The emoji panel toggle icon: the left emoji button, or, with the compact
+  // bar, the attach-menu button (which closes the panel while it is open)
+  private void setEmojiToggleIcon (@DrawableRes int iconRes) {
+    if (compactInputBar) {
+      if (attachMenuButton != null) {
+        boolean panelIcon = iconRes == R.drawable.baseline_keyboard_24 || iconRes == R.drawable.baseline_direction_arrow_down_24;
+        attachMenuButton.setImageResource(panelIcon ? iconRes : R.drawable.deproko_baseline_attach_26);
+      }
+    } else {
+      emojiButton.setImageResource(iconRes);
     }
   }
 
@@ -8313,6 +8467,7 @@ public class MessagesController extends ViewController<MessagesController.Argume
       commandButton.setTranslationX(visible ? 0 : silentButton.getLayoutParams().width);
       if (silentButton.setVisible(visible)) {
         attachButtons.updatePivot();
+        updateCompactAttachPadding();
       }
       if (visible) {
         silentButton.forceState(tdlib.chatDefaultDisableNotifications(getChatId()));
@@ -9218,10 +9373,10 @@ public class MessagesController extends ViewController<MessagesController.Argume
 
       setEmojiShown(true, true);
       if (emojiState) {
-        emojiButton.setImageResource(R.drawable.baseline_keyboard_24);
+        setEmojiToggleIcon(R.drawable.baseline_keyboard_24);
         emojiKeyboardFrameLayout.hideKeyboard(inputView);
       } else {
-        emojiButton.setImageResource(R.drawable.baseline_direction_arrow_down_24);
+        setEmojiToggleIcon(R.drawable.baseline_direction_arrow_down_24);
       }
     }
   }
@@ -9263,7 +9418,7 @@ public class MessagesController extends ViewController<MessagesController.Argume
         emojiKeyboardFrameLayout.setVisible(false);
       }
       setEmojiShown(false, false);
-      emojiButton.setImageResource(getTargetIcon(true));
+      setEmojiToggleIcon(getTargetIcon(true));
     }
   }
 
@@ -9280,7 +9435,7 @@ public class MessagesController extends ViewController<MessagesController.Argume
         emojiKeyboardFrameLayout.showKeyboard(inputView);
       }
       setEmojiShown(false, true);
-      emojiButton.setImageResource(getTargetIcon(true));
+      setEmojiToggleIcon(getTargetIcon(true));
     }
   }
 
@@ -9965,6 +10120,9 @@ public class MessagesController extends ViewController<MessagesController.Argume
   private void displayEmojiButton () {
     emojiButton.setVisibility(View.VISIBLE);
     emojiButton.setOnClickListener(this);
+    if (compactInputBar) {
+      applyCommandSlot();
+    }
   }
 
   private void hideEmojiButton () {
@@ -9977,7 +10135,7 @@ public class MessagesController extends ViewController<MessagesController.Argume
   }
 
   public View getAttachButton () {
-    return mediaButton;
+    return compactInputBar && attachMenuButton != null ? attachMenuButton : mediaButton;
   }
 
   private float sendFactor;
@@ -9994,9 +10152,18 @@ public class MessagesController extends ViewController<MessagesController.Argume
       sendButton.setScaleY(scale1);
 
       float scale2 = 1f - scale;
-      attachButtons.setAlpha(1f - factor);
-      attachButtons.setScaleX(scale2);
-      attachButtons.setScaleY(scale2);
+      if (compactInputBar) {
+        // Compact bar: the attach-menu button (the only way to the emoji
+        // panel) stays while typing, like the official attach button; only
+        // the record button gives way to the send button drawn over it
+        recordButton.setAlpha(1f - factor);
+        recordButton.setScaleX(scale2);
+        recordButton.setScaleY(scale2);
+      } else {
+        attachButtons.setAlpha(1f - factor);
+        attachButtons.setScaleX(scale2);
+        attachButtons.setScaleY(scale2);
+      }
       messageSenderButton.setSendFactor(sendFactor);
 
       if (tooltipInfo != null && tooltipInfo.isVisible()) {
@@ -10475,7 +10642,7 @@ public class MessagesController extends ViewController<MessagesController.Argume
       case Intents.ACTIVITY_RESULT_VIDEO_CAPTURE: {
         File file = Intents.takeLastOutputMedia();
         boolean isVideo = requestCode == Intents.ACTIVITY_RESULT_VIDEO_CAPTURE;
-        if (showSlowModeRestriction(mediaButton, null) || showRestriction(mediaButton, isVideo ? RightId.SEND_VIDEOS : RightId.SEND_PHOTOS)) {
+        if (showSlowModeRestriction(getAttachButton(), null) || showRestriction(getAttachButton(), isVideo ? RightId.SEND_VIDEOS : RightId.SEND_PHOTOS)) {
           return;
         }
         if (file != null) {
@@ -10538,7 +10705,7 @@ public class MessagesController extends ViewController<MessagesController.Argume
         if (imagePath != null && imagePath.endsWith(".webp") && tdlib.getRestrictionStatus(chat, RightId.SEND_OTHER_MESSAGES) == null) {
           sendSticker(imagePath, true, Td.newSendOptions());
         } else if (requestCode == Intents.ACTIVITY_RESULT_GALLERY_FILE) {
-          sendFiles(mediaButton, Collections.singletonList(imagePath), false, true, Td.newSendOptions());
+          sendFiles(getAttachButton(), Collections.singletonList(imagePath), false, true, Td.newSendOptions());
         } else {
           sendPhotoCompressed(imagePath, null, true);
         }
@@ -10548,7 +10715,7 @@ public class MessagesController extends ViewController<MessagesController.Argume
       case Intents.ACTIVITY_RESULT_AUDIO: {
         final Uri path = data.getData();
         if (path == null) break;
-        if (showSlowModeRestriction(mediaButton, null) || showRestriction(mediaButton, RightId.SEND_AUDIO)) {
+        if (showSlowModeRestriction(getAttachButton(), null) || showRestriction(getAttachButton(), RightId.SEND_AUDIO)) {
           return;
         }
         final String audioPath = U.tryResolveFilePath(path);
@@ -10648,7 +10815,7 @@ public class MessagesController extends ViewController<MessagesController.Argume
   }
 
   public void sendPhotoCompressed (final String path, final @Nullable TdApi.MessageSelfDestructType selfDestructType, final boolean allowReply) {
-    if (showSlowModeRestriction(mediaButton, null) || showRestriction(mediaButton, RightId.SEND_PHOTOS)) {
+    if (showSlowModeRestriction(getAttachButton(), null) || showRestriction(getAttachButton(), RightId.SEND_PHOTOS)) {
       return;
     }
     if (StringUtils.isEmpty(path)) {
@@ -11350,6 +11517,7 @@ public class MessagesController extends ViewController<MessagesController.Argume
         if (scheduleButton != null && scheduleButton.setVisible(messageThread == null && tdlib.chatHasScheduled(chatId))) {
           commandButton.setTranslationX(scheduleButton.isVisible() ? 0 : scheduleButton.getLayoutParams().width);
           attachButtons.updatePivot();
+          updateCompactAttachPadding();
         }
         if (areScheduled && !hasScheduledMessages) {
           forceFastAnimationOnce();
@@ -13003,7 +13171,7 @@ public class MessagesController extends ViewController<MessagesController.Argume
   public void onInputSelectionExistChanged (InputView v, boolean hasSelection) {
     textInputHasSelection = hasSelection;
     if (!emojiShown) {
-      emojiButton.setImageResource(getTargetIcon(true));
+      setEmojiToggleIcon(getTargetIcon(true));
     }
   }
 

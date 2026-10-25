@@ -161,6 +161,8 @@ public class SettingsThemeController extends RecyclerViewController<SettingsThem
           v.getToggler().setRadioEnabled(Settings.instance().needAutoplayGIFs(), isUpdate);
         } else if (itemId == R.id.btn_bigButtonIcons) {
           v.getToggler().setRadioEnabled(Settings.instance().useBigButtonIcons(), isUpdate);
+        } else if (itemId == R.id.btn_compactInputBar) {
+          v.getToggler().setRadioEnabled(Settings.instance().useCompactInputBar(), isUpdate);
         } else if (itemId == R.id.btn_saveToGallery) {
           v.getToggler().setRadioEnabled(Settings.instance().needSaveEditedMediaToGallery(), isUpdate);
         } else if (itemId == R.id.btn_mosaic) {
@@ -508,6 +510,8 @@ public class SettingsThemeController extends RecyclerViewController<SettingsThem
       items.add(new ListItem(ListItem.TYPE_RADIO_SETTING, R.id.btn_autoplayGIFs, 0, R.string.AutoplayGifs));
       items.add(new ListItem(ListItem.TYPE_SEPARATOR_FULL));
       items.add(new ListItem(ListItem.TYPE_RADIO_SETTING, R.id.btn_bigButtonIcons, 0, R.string.BigButtonIcons));
+      items.add(new ListItem(ListItem.TYPE_SEPARATOR_FULL));
+      items.add(new ListItem(ListItem.TYPE_RADIO_SETTING, R.id.btn_compactInputBar, 0, R.string.CompactInputBar));
       if (Config.IN_APP_BROWSER_AVAILABLE) {
         items.add(new ListItem(ListItem.TYPE_SEPARATOR_FULL));
         items.add(new ListItem(ListItem.TYPE_RADIO_SETTING, R.id.btn_useInAppBrowser, 0, R.string.UseInAppBrowser, Settings.instance().useInAppBrowser()));
@@ -968,6 +972,8 @@ public class SettingsThemeController extends RecyclerViewController<SettingsThem
       Settings.instance().setAutoplayGIFs(adapter.toggleView(v));
     } else if (viewId == R.id.btn_bigButtonIcons) {
       Settings.instance().setUseBigButtonIcons(adapter.toggleView(v));
+    } else if (viewId == R.id.btn_compactInputBar) {
+      Settings.instance().setUseCompactInputBar(adapter.toggleView(v));
     } else if (viewId == R.id.btn_cameraSetting) {
       ListItem item = ((ListItem) v.getTag());
       Settings.instance().setNewSetting(item.getLongId(), item.getBoolValue() != adapter.toggleView(v));

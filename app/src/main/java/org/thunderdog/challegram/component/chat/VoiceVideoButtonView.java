@@ -256,6 +256,10 @@ public class VoiceVideoButtonView extends View implements FactorAnimator.Target,
     if (!hasTouchControls) {
       return false;// e.getAction() != MotionEvent.ACTION_DOWN || (getAlpha() > 0f && getVisibility() == View.VISIBLE);
     }
+    if (e.getAction() == MotionEvent.ACTION_DOWN && getAlpha() <= 0f) {
+      // Faded out under the send button: let the touch fall through
+      return false;
+    }
 
     switch (e.getAction()) {
       case MotionEvent.ACTION_DOWN: {

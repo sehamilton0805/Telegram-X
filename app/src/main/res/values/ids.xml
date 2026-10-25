@@ -801,6 +801,8 @@
   <item type="id" name="btn_foregroundSync" />
   <item type="id" name="btn_keepAliveService" />
   <item type="id" name="btn_bigButtonIcons" />
+  <item type="id" name="btn_compactInputBar" />
+  <item type="id" name="btn_attachMenu" />
 
   <item type="id" name="btn_ledDisabled" />
 

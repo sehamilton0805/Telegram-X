@@ -361,6 +361,7 @@ public class Settings {
   private static final String KEY_BIG_REACTIONS_IN_CHATS = "big_reactions_in_chats";
   private static final String KEY_KEEP_ALIVE_SERVICE = "keep_alive_service";
   private static final String KEY_BIG_BUTTON_ICONS = "big_button_icons";
+  private static final String KEY_COMPACT_INPUT_BAR = "compact_input_bar";
 
   private static final String KEY_WALLPAPER_PREFIX = "wallpaper";
   private static final String KEY_WALLPAPER_CUSTOM = "_custom";
@@ -6863,6 +6864,16 @@ public class Settings {
 
   public void setUseBigButtonIcons (boolean enabled) {
     pmc.putBoolean(KEY_BIG_BUTTON_ICONS, enabled);
+  }
+
+  // Fork look: bot commands on the left of the input field, one attach-menu
+  // button (emoji, camera, file) on the right
+  public boolean useCompactInputBar () {
+    return getBoolean(KEY_COMPACT_INPUT_BAR, true);
+  }
+
+  public void setUseCompactInputBar (boolean enabled) {
+    pmc.putBoolean(KEY_COMPACT_INPUT_BAR, enabled);
   }
 
   public boolean needKeepAliveService () {
