@@ -627,22 +627,9 @@ public class MessageView extends SparseDrawableView implements Destroyable, Draw
       return true;
     }
 
-    /*if (ChatId.isMultiChat(msg.getChatId()) && !msg.isChannel()) {
-      TdApi.ChatMemberStatus myStatus = msg.tdlib().chatStatus(msg.getChatId());
-      if (myStatus != null && TD.isAdmin(myStatus)) {
-        AtomicBoolean done = new AtomicBoolean(false);
-        msg.tdlib().client().send(new TdApi.GetChatMember(msg.getChatId(), msg.getMessage().senderId), response -> {
-          TdApi.ChatMemberStatus otherStatus = (response.getConstructor() == TdApi.ChatMember.CONSTRUCTOR) ? ((TdApi.ChatMember) response).status : null;
-          msg.tdlib().ui().post(() -> {
-            if (!msg.isDestroyed()) {
-              onMessageClickImpl(x, y, otherStatus);
-            }
-          });
-        });
-        return true;
-      }
-    }*/
-    return onMessageClickImpl(x, y, null);
+    // Fork: the message menu lives on the long press (performLongPress); a
+    // tap only follows links, buttons and the selection mode above
+    return false;
   }
 
   private boolean onMessageClickImpl (float x, float y, @Nullable TdApi.ChatMember sender) {
@@ -1246,6 +1233,13 @@ public class MessageView extends SparseDrawableView implements Destroyable, Draw
       }
     }
 
+    if (!isMore && msg.canBeSelected() && !m.inSelectMode()) {
+      // The menu is on the long press now, so selection needs an item of its own
+      ids.append(R.id.btn_messageSelect);
+      icons.append(R.drawable.baseline_playlist_add_check_24);
+      strings.append(R.string.Select);
+    }
+
     if (moreOptions > 1) {
       ids.append(R.id.btn_messageMore);
       icons.append(R.drawable.baseline_more_horiz_24);
@@ -1444,15 +1438,34 @@ public class MessageView extends SparseDrawableView implements Destroyable, Draw
   }
 
   private boolean performLongPress () {
-    if (msg instanceof TGMessageBotInfo || msg.isNotSent()) {
-      return false;
-    }
     ViewController<?> c = ViewController.findRoot(this);
     if (!(c instanceof MessagesController)) {
       return false;
     }
     MessagesController m = (MessagesController) c;
-    if (msg.canBeSelected()) {
+    if (!m.isFocused() && !m.getParentOrSelf().isFocused()) {
+      return false;
+    }
+    NavigationController n = m.getParentOrSelf().navigationController();
+    if (n == null || n.isAnimating() || n.getHeaderView().isAnimating()) {
+      return false;
+    }
+    // Fork: the long press opens the message menu (it used to be the tap),
+    // which has its own "Select" item; in selection mode it keeps selecting
+    if (m.inSelectMode()) {
+      if (msg.canBeSelected()) {
+        selectMessage(m, msg, touchX, touchY);
+        return true;
+      }
+      return false;
+    }
+    if (m.inPreviewSearchMode()) {
+      return false;
+    }
+    if (onMessageClickImpl(touchX, touchY, null)) {
+      return true;
+    }
+    if (!msg.isNotSent() && msg.canBeSelected()) {
       selectMessage(m, msg, touchX, touchY);
       return true;
     }
