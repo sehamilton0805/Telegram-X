@@ -78,6 +78,7 @@ import org.thunderdog.challegram.tool.Strings;
 import org.thunderdog.challegram.tool.TGCountry;
 import org.thunderdog.challegram.tool.UI;
 import org.thunderdog.challegram.ui.EditRightsController;
+import org.thunderdog.challegram.ui.MessagesController;
 import org.thunderdog.challegram.unsorted.Passcode;
 import org.thunderdog.challegram.unsorted.Settings;
 import org.thunderdog.challegram.util.ChangeLogList;
@@ -4664,7 +4665,14 @@ public class Tdlib implements TdlibProvider, Settings.SettingsChangeListener, Da
         );
       }
     }
-    notifications().onChatOpened(chatId);
+    // Only a chat the user is looking at counts as opened for notifications:
+    // background opens (resource channels), peek previews and the preview
+    // screens (search, event log, wallpaper pickers) are not reads
+    boolean isPreview = controller == null || controller.isInForceTouchMode() ||
+      (controller instanceof MessagesController && ((MessagesController) controller).inPreviewMode());
+    if (!isPreview) {
+      notifications().onChatOpened(chatId);
+    }
   }
 
   public boolean isChatOpen (final long chatId) {

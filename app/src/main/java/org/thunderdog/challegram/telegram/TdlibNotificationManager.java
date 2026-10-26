@@ -2252,9 +2252,7 @@ public class TdlibNotificationManager implements UI.StateListener, Passcode.Lock
 
   @AnyThread
   public void onChatOpened (long chatId) {
-    if (ChatId.isSecret(chatId)) {
-      sendLockedMessage(Message.obtain(queue.getHandler(), ON_CHAT_OPENED, BitwiseUtils.splitLongToFirstInt(chatId), BitwiseUtils.splitLongToSecondInt(chatId), this), null);
-    }
+    sendLockedMessage(Message.obtain(queue.getHandler(), ON_CHAT_OPENED, BitwiseUtils.splitLongToFirstInt(chatId), BitwiseUtils.splitLongToSecondInt(chatId), this), null);
   }
 
   @AnyThread

@@ -17,6 +17,7 @@ package org.thunderdog.challegram.telegram;
 import android.annotation.TargetApi;
 import android.content.Context;
 import android.os.Build;
+import android.service.notification.StatusBarNotification;
 
 import androidx.annotation.AnyThread;
 import androidx.annotation.NonNull;
@@ -164,9 +165,63 @@ public class TdlibNotificationHelper implements Iterable<TdlibNotificationGroup>
         rebuild();
       }
     }
+    reconcileSystemTray("active notifications restored");
   }
 
   private boolean haveRebuilt;
+
+  // Fork safety net. The system tray may hold message notifications that no
+  // active group backs any more: posted by a previous process and never
+  // cancelled, because the removal came while the app was dead, or left over
+  // after a missed update. Everything under this account's message tags that
+  // the current state does not explain is cancelled.
+  private void reconcileSystemTray (String reason) {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+      return;
+    }
+    android.app.NotificationManager systemManager = (android.app.NotificationManager) UI.getAppContext().getSystemService(Context.NOTIFICATION_SERVICE);
+    if (systemManager == null) {
+      return;
+    }
+    StatusBarNotification[] active;
+    try {
+      active = systemManager.getActiveNotifications();
+    } catch (Throwable t) {
+      TDLib.Tag.notifications("Unable to list active notifications: %s", t.toString());
+      return;
+    }
+    if (active == null || active.length == 0) {
+      return;
+    }
+    Set<String> ownTags = new HashSet<>();
+    Set<String> expected = new HashSet<>();
+    for (int category = TdlibNotificationGroup.CATEGORY_DEFAULT; category <= TdlibNotificationGroup.MAX_CATEGORY; category++) {
+      String tag = tag(category);
+      ownTags.add(tag);
+      if (hasVisibleNotifications(category)) {
+        expected.add(tag + "/" + getBaseNotificationId(category));
+      }
+    }
+    for (TdlibNotificationGroup group : this) {
+      expected.add(tag(group.getCategory()) + "/" + getNotificationIdForGroup(group.getId()));
+    }
+    NotificationManagerCompat manager = manager();
+    for (StatusBarNotification notification : active) {
+      String tag = notification.getTag();
+      if (tag == null || !ownTags.contains(tag)) {
+        continue;
+      }
+      String key = tag + "/" + notification.getId();
+      if (!expected.contains(key)) {
+        TDLib.Tag.notifications("Cancelling stale notification %s (%s)", key, reason);
+        try {
+          manager.cancel(tag, notification.getId());
+        } catch (Throwable t) {
+          TDLib.Tag.notifications("Unable to cancel %s: %s", key, t.toString());
+        }
+      }
+    }
+  }
 
   public void updateGroup (TdApi.UpdateNotificationGroup update) {
     if (!accept(update.type))
@@ -607,5 +662,19 @@ public class TdlibNotificationHelper implements Iterable<TdlibNotificationGroup>
         }
       }
     }
+    // Fork safety net: opening a chat dismisses its notifications in the tray
+    // at once, as a swipe would, instead of waiting for a removal from TDLib
+    // that may never come (a stale one stayed in the tray for an hour).
+    // Forums are left to TDLib: one open topic must not dismiss the others
+    if (!tdlib.isForum(chatId)) {
+      for (TdlibNotificationGroup group : groups.values()) {
+        if (group.getChatId() == chatId && !group.isEmpty() && !group.isHidden()) {
+          TDLib.Tag.notifications("Hiding notification group %d on chat open, chatId: %d", group.getId(), chatId);
+          group.markAsHidden(TdlibNotificationGroup.HIDE_REASON_DEFAULT);
+          hideNotificationGroup(group);
+        }
+      }
+    }
+    reconcileSystemTray("chat opened");
   }
 }
