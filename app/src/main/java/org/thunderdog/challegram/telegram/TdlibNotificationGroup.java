@@ -18,6 +18,7 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
 import org.drinkless.tdlib.TdApi;
+import org.thunderdog.challegram.TDLib;
 import org.thunderdog.challegram.data.TD;
 import org.thunderdog.challegram.unsorted.Settings;
 
@@ -338,6 +339,20 @@ public class TdlibNotificationGroup implements Iterable<TdlibNotification> {
         }
       }
       Collections.sort(this.notifications);
+    }
+    // TDLib drops a removal from the update when an edit of the same
+    // notification was pending in the same flush (the game bot edits its
+    // screen right as it gets read): the notification then stayed here for
+    // good and came back on every later change of the group. totalCount is
+    // an upper bound of the active notifications - trim the oldest leftovers
+    int maxCount = Math.max(0, update.totalCount);
+    while (this.notifications.size() > maxCount) {
+      TdlibNotification stale = this.notifications.remove(0);
+      TDLib.Tag.notifications("Dropping stale notification %d of group %d: totalCount is %d", stale.getId(), id, update.totalCount);
+      if (removedNotifications != null) {
+        removedNotifications.add(stale);
+      }
+      changeCount++;
     }
     return changeCount;
   }

@@ -242,11 +242,8 @@ public class TdlibNotificationHelper implements Iterable<TdlibNotificationGroup>
       } else {
         addedNotifications = null;
       }
-      if (update.removedNotificationIds != null && update.removedNotificationIds.length > 0) {
-        removedNotifications = new ArrayList<>(update.removedNotificationIds.length);
-      } else {
-        removedNotifications = null;
-      }
+      // Always a list: the group also reports the leftovers it trims
+      removedNotifications = new ArrayList<>(update.removedNotificationIds != null ? update.removedNotificationIds.length : 0);
 
       int oldTotalCount = group.getTotalCount();
 
