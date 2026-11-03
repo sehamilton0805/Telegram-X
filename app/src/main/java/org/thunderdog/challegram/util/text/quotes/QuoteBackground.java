@@ -45,10 +45,18 @@ public class QuoteBackground {
   public static final int QUOTE_VERTICAL_MARGIN = 8;
 
   private static Drawable quoteDrawable;
+  private static Drawable expandDrawable;
   private static final RectF tmpRect = new RectF();
 
   private int topAddition;
   private int bottomAddition;
+
+  // Expandable quotes (TextEntityTypeExpandableBlockQuote) start folded to
+  // Text.COLLAPSED_QUOTE_LINE_COUNT lines; a tap on the quote unfolds them.
+  // canCollapse: the quote is longer than the limit, so there is something to
+  // fold or unfold; collapsed: the lines past the limit are hidden right now
+  private boolean canCollapse;
+  private boolean collapsed;
 
   public final Text parent;
   public final TextEntity entity;
@@ -83,6 +91,25 @@ public class QuoteBackground {
 
   public boolean onTouchEvent (View view, MotionEvent e) {
     return ripple.onTouchEvent(view, e, (int) (e.getX() - ripple.bounds.left), (int) (e.getY() - ripple.bounds.top));
+  }
+
+  public void setCollapseState (boolean canCollapse, boolean collapsed) {
+    this.canCollapse = canCollapse;
+    this.collapsed = canCollapse && collapsed;
+  }
+
+  public boolean canCollapse () {
+    return canCollapse;
+  }
+
+  public boolean isCollapsed () {
+    return collapsed;
+  }
+
+  // A folded quote ends at its last kept line: the blank lines within the
+  // limit stay covered, the tail of the quote is gone from the layout
+  public void setBottomAdditionLines (int count) {
+    this.bottomAddition = Math.max(0, count) * parent.getLineHeight();
   }
 
 
@@ -133,6 +160,23 @@ public class QuoteBackground {
     ripple.draw(c);
 
     Drawables.draw(c, quoteDrawable, bounds.right - Screen.dp(19), bounds.top + Screen.dp(3.5f), PorterDuffPaint.get(lineColorId));
+
+    if (canCollapse) {
+      // Chevron in the bottom-right corner: down while folded, up while unfolded
+      if (expandDrawable == null) {
+        expandDrawable = Drawables.get(R.drawable.baseline_keyboard_arrow_down_20);
+      }
+      final float cx = bounds.right - Screen.dp(11f);
+      final float cy = bounds.bottom - Screen.dp(10f);
+      if (collapsed) {
+        Drawables.drawCentered(c, expandDrawable, cx, cy, PorterDuffPaint.get(lineColorId));
+      } else {
+        c.save();
+        c.rotate(180f, cx, cy);
+        Drawables.drawCentered(c, expandDrawable, cx, cy, PorterDuffPaint.get(lineColorId));
+        c.restore();
+      }
+    }
 
     tmpRect.set(bounds);
     tmpRect.right = bounds.left + Screen.dp(3);

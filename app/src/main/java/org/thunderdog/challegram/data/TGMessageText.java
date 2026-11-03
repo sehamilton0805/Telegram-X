@@ -45,6 +45,9 @@ import org.thunderdog.challegram.util.text.TextColorSets;
 import org.thunderdog.challegram.util.text.TextEntity;
 import org.thunderdog.challegram.util.text.TextWrapper;
 
+import java.util.HashSet;
+import java.util.Set;
+
 import me.vkryl.android.AnimatorUtils;
 import me.vkryl.android.animator.BoolAnimator;
 import me.vkryl.android.animator.ListAnimator;
@@ -286,6 +289,7 @@ public class TGMessageText extends TGMessage {
           .setClickCallback(clickCallback());
       }
       wrapper.addTextFlags(Text.FLAG_BIG_EMOJI);
+      wrapper.setQuoteExpandDelegate(quoteExpandDelegate);
       if (useBubbles()) {
         wrapper.addTextFlags(Text.FLAG_ADJUST_TO_CURRENT_WIDTH);
       }
@@ -320,6 +324,35 @@ public class TGMessageText extends TGMessage {
   }
 
   private TextWrapper effectiveWrapper;
+
+  // Expandable quotes unfolded by the user, by quote id (entity offset). The
+  // state outlives edits: a bot that redraws its screen in place keeps the
+  // quote at the same offset, so an unfolded tail stays unfolded; a quote that
+  // moves to another offset starts folded again
+  private final Set<Integer> expandedQuoteIds = new HashSet<>();
+  private final Text.QuoteExpandDelegate quoteExpandDelegate = new Text.QuoteExpandDelegate() {
+    @Override
+    public boolean isQuoteExpanded (Text text, int quoteId) {
+      return expandedQuoteIds.contains(quoteId);
+    }
+
+    @Override
+    public void onQuoteExpandToggle (View view, Text text, int quoteId, boolean expand) {
+      if (expand) {
+        expandedQuoteIds.add(quoteId);
+      } else {
+        expandedQuoteIds.remove(quoteId);
+      }
+      if (TGMessageText.this.text != null) {
+        final int keyboardWidth = getInlineKeyboardLayoutWidth();
+        // Same path as a translation result: a new wrapper replaces the old one and the message is re-laid out
+        setText(TGMessageText.this.text, false, true, true);
+        rebuildAndUpdateContent();
+        rebuildInlineKeyboardIfWidthChanged(keyboardWidth);
+        invalidateTextMediaReceiver();
+      }
+    }
+  };
 
   private static final int MAX_WEB_PAGE_MEDIA_COUNT = Integer.MAX_VALUE / 4;
   private long textMediaKeyOffset;

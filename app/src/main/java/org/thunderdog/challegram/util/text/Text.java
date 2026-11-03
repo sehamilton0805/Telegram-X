@@ -150,12 +150,27 @@ public class Text implements Runnable, Emoji.CountLimiter, CounterTextPart, List
     void onInvalidateTextMedia (Text text, @Nullable TextMedia specificMedia);
   }
 
+  /**
+   * Owner of expandable block quotes (TextEntityTypeExpandableBlockQuote).
+   * Without a delegate such quotes are laid out in full, like regular ones;
+   * with one they start folded to {@link #COLLAPSED_QUOTE_LINE_COUNT} lines
+   * and a tap asks the delegate to unfold (or fold) them. The delegate keeps
+   * the state and rebuilds the text: the layout itself never mutates.
+   */
+  public interface QuoteExpandDelegate {
+    boolean isQuoteExpanded (Text text, int quoteId);
+    void onQuoteExpandToggle (View view, Text text, int quoteId, boolean expand);
+  }
+
+  public static final int COLLAPSED_QUOTE_LINE_COUNT = 3;
+
   private int maxWidth, textFlags;
 
   private final @Nullable LineWidthProvider lineWidthProvider;
   private final @Nullable LineMarginProvider lineMarginProvider;
   private final @Nullable ClickListener clickListener;
   private final @Nullable TextMediaListener textMediaListener;
+  private final @Nullable QuoteExpandDelegate quoteExpandDelegate;
   private final int maxLineCount;
   private final @NonNull TextStyleProvider textStyleProvider;
   private final @NonNull TextColorSet defaultTextColorSet;
@@ -334,7 +349,7 @@ public class Text implements Runnable, Emoji.CountLimiter, CounterTextPart, List
     return null;
   }
 
-  private Text (@NonNull String in, int maxWidth, @NonNull TextStyleProvider textStyleProvider, @NonNull TextColorSet textColorSet, int maxLineCount, @Nullable LineWidthProvider lineWidthProvider, @Nullable LineMarginProvider lineMarginProvider, int textFlags, @Nullable TextEntity[] entities, String suffix, @Nullable ClickListener clickListener, @Nullable TextMediaListener textMediaListener) {
+  private Text (@NonNull String in, int maxWidth, @NonNull TextStyleProvider textStyleProvider, @NonNull TextColorSet textColorSet, int maxLineCount, @Nullable LineWidthProvider lineWidthProvider, @Nullable LineMarginProvider lineMarginProvider, int textFlags, @Nullable TextEntity[] entities, String suffix, @Nullable ClickListener clickListener, @Nullable TextMediaListener textMediaListener, @Nullable QuoteExpandDelegate quoteExpandDelegate) {
     this.textFlags = textFlags;
     this.maxWidth = maxWidth;
     this.maxLineCount = maxLineCount;
@@ -342,6 +357,7 @@ public class Text implements Runnable, Emoji.CountLimiter, CounterTextPart, List
     this.lineMarginProvider = lineMarginProvider;
     this.clickListener = clickListener;
     this.textMediaListener = textMediaListener;
+    this.quoteExpandDelegate = quoteExpandDelegate;
     this.textStyleProvider = textStyleProvider;
     this.defaultTextColorSet = textColorSet;
     this.entities = entities;
@@ -366,6 +382,7 @@ public class Text implements Runnable, Emoji.CountLimiter, CounterTextPart, List
     private ViewProvider viewProvider;
     private ClickListener clickListener;
     private TextMediaListener textMediaListener;
+    private QuoteExpandDelegate quoteExpandDelegate;
     private Highlight highlight; // TODO highlight text
 
     public Builder (String in, int maxWidth, @NonNull TextStyleProvider provider, @NonNull TextColorSet theme) {
@@ -531,6 +548,11 @@ public class Text implements Runnable, Emoji.CountLimiter, CounterTextPart, List
       return this;
     }
 
+    public Builder quoteExpandDelegate (@Nullable QuoteExpandDelegate quoteExpandDelegate) {
+      this.quoteExpandDelegate = quoteExpandDelegate;
+      return this;
+    }
+
     public Builder view (View view) {
       return viewProvider(new SingleViewProvider(view));
     }
@@ -545,7 +567,7 @@ public class Text implements Runnable, Emoji.CountLimiter, CounterTextPart, List
       if (this.highlight != null) {
         entities = new FormattedText(in, entities).highlight(this.highlight).entities;
       }
-      Text text = new Text(in, maxWidth, provider, theme, maxLineCount, lineWidthProvider, lineMarginProvider, textFlags, entities, suffix, clickListener, textMediaListener);
+      Text text = new Text(in, maxWidth, provider, theme, maxLineCount, lineWidthProvider, lineMarginProvider, textFlags, entities, suffix, clickListener, textMediaListener, quoteExpandDelegate);
       if (viewProvider != null)
         text.setViewProvider(viewProvider);
       return text;
@@ -3035,7 +3057,13 @@ public class Text implements Runnable, Emoji.CountLimiter, CounterTextPart, List
       case MotionEvent.ACTION_UP: {
         clearTouch();
         if (pressedQuote != null) {
+          final QuoteBackground quote = pressedQuote;
           cancelTouch();
+          if (quote.canCollapse() && quoteExpandDelegate != null && quote.entity != null) {
+            // A tap on an expandable quote folds or unfolds it. The click sound
+            // is already played by the quote ripple on ACTION_UP
+            quoteExpandDelegate.onQuoteExpandToggle(view, this, quote.entity.getQuoteId(), quote.isCollapsed());
+          }
           return true;
         } else if (pressHighlight != null) {
           TextPart part = parts.get(pressHighlight.causePartIndex);
@@ -3510,6 +3538,93 @@ public class Text implements Runnable, Emoji.CountLimiter, CounterTextPart, List
     }
     if (quote != null) {
       addQuote(quote);
+    }
+    if (quoteExpandDelegate != null) {
+      collapseExpandableQuotes();
+    }
+  }
+
+  // Expandable quotes fold to COLLAPSED_QUOTE_LINE_COUNT lines unless the
+  // delegate reports them unfolded. Folding is a post-pass over the finished
+  // layout: the parts past the limit are dropped, the lines they occupied are
+  // removed from lineSizes, and everything below moves up by their height.
+  // Quotes occupy whole lines (quoteCheckAndMakeNewLines breaks before and
+  // after them) and parts are listed in line order, so a quote's tail is a
+  // contiguous range of parts and a contiguous range of lines
+  private void collapseExpandableQuotes () {
+    final int maxLines = COLLAPSED_QUOTE_LINE_COUNT;
+    int removedPartCount = 0;
+    boolean changed = false;
+    for (QuoteBackground quote : quotes) {
+      quote.partStart -= removedPartCount;
+      quote.partEnd -= removedPartCount;
+      final TextEntity entity = quote.entity;
+      if (entity == null || !entity.isExpandableQuote()) {
+        continue;
+      }
+      final TextPart firstPart = parts.get(quote.partStart);
+      final TextPart lastPart = parts.get(quote.partEnd - 1);
+      // Visible extent of the quote: the blank lines before its first part, its
+      // text lines, and the blank lines after its last part that the background
+      // covers (same rule as QuoteBackground.calcHeightAddition)
+      final int topLine = firstPart.getLineIndex() - TextPart.getAdditionalLinesBefore(firstPart);
+      final int trailingCount = TextPart.getAdditionalLinesAfter(lastPart);
+      final int bottomLine = lastPart.getLineIndex() + (trailingCount == 1 ? 0 : trailingCount);
+      // The first line with text is always kept, even when blank leading lines alone fill the limit
+      final int cutLine = Math.max(topLine + maxLines, firstPart.getLineIndex() + 1);
+      // Foldable only when a fold actually hides something
+      final boolean canCollapse = cutLine <= bottomLine;
+      final boolean collapsed = canCollapse && !quoteExpandDelegate.isQuoteExpanded(this, entity.getQuoteId());
+      quote.setCollapseState(canCollapse, collapsed);
+      if (!collapsed) {
+        continue;
+      }
+      int cutIndex = quote.partEnd;
+      for (int i = quote.partStart; i < quote.partEnd; i++) {
+        if (parts.get(i).getLineIndex() >= cutLine) {
+          cutIndex = i;
+          break;
+        }
+      }
+      // The trailing empty row of a text ending with newlines has no lineSizes entry (its index is
+      // getLineCount()); when the cut reaches it, the new last row is a real line again
+      final boolean removedTrailingRow = bottomLine >= getLineCount();
+      int removedHeight = 0;
+      for (int line = cutLine; line <= bottomLine; line++) {
+        // Lines past the last lineSizes entry exist only as height (text ending with newlines)
+        removedHeight += line < getLineCount() ? getLineHeight(line) : getLineHeight();
+      }
+      for (int line = Math.min(bottomLine, getLineCount() - 1); line >= cutLine; line--) {
+        lineSizes.remove(line);
+      }
+      final int removedLineCount = bottomLine - cutLine + 1;
+      for (int i = quote.partEnd - 1; i >= cutIndex; i--) {
+        TextPart part = parts.remove(i);
+        removeMedia(part);
+      }
+      removedPartCount += quote.partEnd - cutIndex;
+      quote.partEnd = cutIndex;
+      for (int i = cutIndex; i < parts.size(); i++) {
+        TextPart part = parts.get(i);
+        part.setXY(part.getX(), part.getY() - removedHeight);
+        part.setLineIndex(part.getLineIndex() - removedLineCount, part.getParagraphIndex());
+      }
+      currentY -= removedHeight;
+      if (quote.partEnd == parts.size() && (currentX != 0 || removedTrailingRow)) {
+        // The quote ended the text on a line (or on trailing empty rows) that is now gone:
+        // the bubble aligns its time to the new last line
+        currentX = getLineWidth(getLineCount() - 1);
+      }
+      quote.calcHeightAddition();
+      quote.setBottomAdditionLines(cutLine - 1 - parts.get(quote.partEnd - 1).getLineIndex());
+      changed = true;
+    }
+    if (changed) {
+      // The widest line may be gone
+      currentWidth = 0;
+      for (int i = 0; i < getLineCount(); i++) {
+        currentWidth = Math.max(currentWidth, getLineWidth(i));
+      }
     }
   }
 

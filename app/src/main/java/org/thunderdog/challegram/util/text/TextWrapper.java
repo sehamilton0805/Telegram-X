@@ -142,6 +142,13 @@ public class TextWrapper implements ListAnimator.Measurable, Destroyable, Text.T
     return this;
   }
 
+  private Text.QuoteExpandDelegate quoteExpandDelegate;
+
+  public TextWrapper setQuoteExpandDelegate (@Nullable Text.QuoteExpandDelegate quoteExpandDelegate) {
+    this.quoteExpandDelegate = quoteExpandDelegate;
+    return this;
+  }
+
   @Override
   public void onInvalidateTextMedia (Text text, @Nullable TextMedia specificMedia) {
     if (textMediaListener != null && text == getCurrent()) {
@@ -242,6 +249,7 @@ public class TextWrapper implements ListAnimator.Measurable, Destroyable, Text.T
           .viewProvider(viewProvider)
           .highlight(highlightText)
           .lineWidthProvider(lineWidthProvider)
+          .quoteExpandDelegate(quoteExpandDelegate)
           .textFlags(BitwiseUtils.setFlag(textFlags, Text.FLAG_BIG_EMOJI, false));
         text = b.build();
         if (needBigEmoji) {

@@ -47,6 +47,8 @@ import org.thunderdog.challegram.util.text.TextEntity;
 import org.thunderdog.challegram.util.text.TextWrapper;
 
 import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.Set;
 
 import me.vkryl.android.animator.FactorAnimator;
 import me.vkryl.core.MathUtils;
@@ -56,6 +58,30 @@ import tgx.td.Td;
 public class TGMessageMedia extends TGMessage {
   // private MediaWrapper mediaWrapper;
   private @Nullable TextWrapper wrapper;
+
+  // Expandable quotes of the caption unfolded by the user, by quote id (entity offset)
+  private final Set<Integer> expandedQuoteIds = new HashSet<>();
+  private final Text.QuoteExpandDelegate quoteExpandDelegate = new Text.QuoteExpandDelegate() {
+    @Override
+    public boolean isQuoteExpanded (Text text, int quoteId) {
+      return expandedQuoteIds.contains(quoteId);
+    }
+
+    @Override
+    public void onQuoteExpandToggle (View view, Text text, int quoteId, boolean expand) {
+      if (expand) {
+        expandedQuoteIds.add(quoteId);
+      } else {
+        expandedQuoteIds.remove(quoteId);
+      }
+      final int keyboardWidth = getInlineKeyboardLayoutWidth();
+      // Same path as a translation result: the caption is rebuilt and the message re-laid out
+      checkCommonCaption(true);
+      rebuildAndUpdateContent();
+      rebuildInlineKeyboardIfWidthChanged(keyboardWidth);
+      invalidateTextMediaReceiver();
+    }
+  };
 
   // Timer stuff
 
@@ -354,6 +380,7 @@ public class TGMessageMedia extends TGMessage {
           })
           .setHighlightText(getHighlightedText(Highlight.Pool.KEY_MEDIA_CAPTION, fText.text))
           .addTextFlags(Text.FLAG_BIG_EMOJI)
+          .setQuoteExpandDelegate(quoteExpandDelegate)
           .setClickCallback(clickCallback());
         this.wrapper.setViewProvider(currentViews);
         if (Config.USE_NONSTRICT_TEXT_ALWAYS || !useBubbles()) {

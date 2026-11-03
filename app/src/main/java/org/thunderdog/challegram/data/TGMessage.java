@@ -1403,6 +1403,22 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
     }
   }
 
+  // The inline keyboard is laid out against the width of its bubble (of the
+  // content, without bubbles) when the message is built (buildMarkup). A content
+  // rebuild that moves that width afterwards, e.g. a folded quote opening when
+  // its tail holds the widest line, has to lay the keyboard out again, the way
+  // the edit path does (performContentfulUpdate)
+  protected final int getInlineKeyboardLayoutWidth () {
+    return useBubbles() && useBubble() ? getActualRightContentEdge() - getActualLeftContentEdge() : getContentWidth();
+  }
+
+  protected final void rebuildInlineKeyboardIfWidthChanged (int oldLayoutWidth) {
+    if (inlineKeyboard != null && !inlineKeyboard.isEmpty() && oldLayoutWidth != getInlineKeyboardLayoutWidth()) {
+      buildMarkup();
+      invalidate();
+    }
+  }
+
   private int getBubbleViewPaddingTop () {
     return useBubble() ? ((flags & FLAG_HEADER_ENABLED) != 0 ? xBubbleViewPadding : xBubbleViewPaddingSmall) : xBubbleViewPadding;
   }

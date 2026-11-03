@@ -141,6 +141,11 @@ public abstract class TextEntity {
   public abstract  TdApi.TextEntity getQuote ();
   public abstract int getQuoteId ();
 
+  public final boolean isExpandableQuote () {
+    TdApi.TextEntity quote = getQuote();
+    return quote != null && quote.type.getConstructor() == TdApi.TextEntityTypeExpandableBlockQuote.CONSTRUCTOR;
+  }
+
   // TODO: TextEntityCustom & TextEntityMessage to make things simpler
   public abstract TextEntity setOnClickListener (ClickableSpan onClickListener);
   public abstract ClickableSpan getOnClickListener ();
