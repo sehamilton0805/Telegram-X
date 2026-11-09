@@ -27,6 +27,23 @@ jobs:
           submodules: recursive
           lfs: true
 
+      - name: Patched TDLib (arm64) from pinned release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          PIN=tdlib-patches/pinned.properties
+          [[ -f "$PIN" ]] || { echo "::error::$PIN missing - run tdlib-build.yml and commit the pin from its summary"; exit 1; }
+          prop () { sed -n "s/^$1=//p" "$PIN" | tr -d '\r'; }
+          TD_COMMIT=$(prop td_commit); TAG=$(prop release_tag); ASSET=$(prop asset); SHA=$(prop sha256)
+          ACTUAL=$(tr -d '[:space:]' < tdlib/version.txt)
+          [[ "$ACTUAL" == "$TD_COMMIT" ]] || { echo "::error::pinned TDLib $TD_COMMIT != submodule $ACTUAL - rerun tdlib-build.yml and update tdlib-patches/pinned.properties"; exit 1; }
+          mkdir -p "$RUNNER_TEMP/tdlib"
+          gh release download "$TAG" -p "$ASSET" -D "$RUNNER_TEMP/tdlib" --clobber
+          echo "$SHA  $RUNNER_TEMP/tdlib/$ASSET" | sha256sum -c -
+          cp "$RUNNER_TEMP/tdlib/$ASSET" tdlib/src/main/libs/arm64-v8a/libtdjni.so
+          echo "patched TDLib $TAG installed: $(grep -c disable_online_notification_delay tdlib/src/main/libs/arm64-v8a/libtdjni.so) option string(s)"
+
       - name: Set up JDK
         uses: actions/setup-java@v4
         with:
