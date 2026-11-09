@@ -5829,6 +5829,9 @@
   <string name="AttachMenuFile">Файл</string>
   <string name="KeepAliveService">Постоянное соединение</string>
   <string name="KeepAliveServiceDesc">Держит фоновое соединение с Telegram: уведомления приходят мгновенно, даже когда пуши задерживаются или аккаунт онлайн на другом устройстве. Показывает тихое системное уведомление и немного расходует батарею.</string>
+  <string name="InstantNotifications">Мгновенные уведомления</string>
+  <string name="InstantNotificationsDesc">Не откладывать уведомления на 30 секунд, когда аккаунт онлайн на другом устройстве. Телефон будет оповещать и о том, что вы читаете в этот момент на компьютере.</string>
+  <string name="InstantNotificationsUnavailable">Недоступно в этой сборке: библиотека TDLib без патча.</string>
   <string name="KeepAliveNotification">Постоянное соединение активно</string>
   <string name="ForegroundSync">Fetch missing notifications</string>
   <string name="ForegroundSyncDesc">Allow app to show **\"Checking for new messages\"** in the system tray to fetch missing data required to display a notification about a new message.</string>

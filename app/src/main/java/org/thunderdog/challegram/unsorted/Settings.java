@@ -360,6 +360,8 @@ public class Settings {
   private static final String KEY_BIG_REACTIONS_IN_CHANNELS = "big_reactions_in_channels";
   private static final String KEY_BIG_REACTIONS_IN_CHATS = "big_reactions_in_chats";
   private static final String KEY_KEEP_ALIVE_SERVICE = "keep_alive_service";
+  private static final String KEY_INSTANT_NOTIFICATIONS = "instant_notifications";
+  private static final String KEY_INSTANT_NOTIFICATIONS_UNSUPPORTED = "instant_notifications_unsupported";
   private static final String KEY_BIG_BUTTON_ICONS = "big_button_icons";
   private static final String KEY_COMPACT_INPUT_BAR = "compact_input_bar";
 
@@ -6882,6 +6884,22 @@ public class Settings {
 
   public void setNeedKeepAliveService (boolean enabled) {
     pmc.putBoolean(KEY_KEEP_ALIVE_SERVICE, enabled);
+  }
+
+  public boolean needInstantNotifications () {
+    return getBoolean(KEY_INSTANT_NOTIFICATIONS, true);
+  }
+
+  public void setNeedInstantNotifications (boolean enabled) {
+    pmc.putBoolean(KEY_INSTANT_NOTIFICATIONS, enabled);
+  }
+
+  public boolean isInstantNotificationsUnsupported () {
+    return getBoolean(KEY_INSTANT_NOTIFICATIONS_UNSUPPORTED, false);
+  }
+
+  public void setInstantNotificationsUnsupported (boolean unsupported) {
+    pmc.putBoolean(KEY_INSTANT_NOTIFICATIONS_UNSUPPORTED, unsupported);
   }
 
   public void setBigReactionsInChannels (boolean inChannels) {

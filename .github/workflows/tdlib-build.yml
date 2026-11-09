@@ -1,0 +1,146 @@
+name: TDLib (patched, arm64)
+
+# Собирает libtdjni.so для arm64-v8a из tdlib/td на коммите из tdlib/version.txt с патчами из
+# tdlib-patches/ и публикует prerelease-релиз. Push-триггер нужен, чтобы workflow вообще
+# зарегистрировался: workflow_dispatch работает только с дефолтной ветки (main), а живём мы на fork.
+on:
+  workflow_dispatch:
+    inputs:
+      td_commit:
+        description: Коммит tdlib/td (пусто = из tdlib/version.txt)
+        required: false
+        default: ''
+  push:
+    branches: [ fork ]
+    paths:
+      - '.github/workflows/tdlib-build.yml'
+      - 'tdlib-patches/*.patch'
+      - 'tdlib'
+
+concurrency:
+  group: tdlib-build
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build libtdjni arm64-v8a
+    runs-on: ubuntu-22.04
+    timeout-minutes: 240
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout (no submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: tdlib submodule + OpenSSL arm64 from LFS
+        run: |
+          set -euo pipefail
+          git submodule update --init --depth 1 tdlib
+          git -C tdlib lfs pull --include="openssl/arm64-v8a/lib/*"
+          ls -la tdlib/openssl/arm64-v8a/lib
+          # LFS-указатель тоже непустой файл: проверяем магию ELF, иначе линковка упадёт через 40 минут
+          for f in libcryptox.so libsslx.so; do
+            magic="$(head -c4 "tdlib/openssl/arm64-v8a/lib/$f" | od -An -tx1 | tr -d ' \n')"
+            [[ "$magic" == "7f454c46" ]] || { echo "::error::$f is an LFS pointer, not an ELF (magic=$magic)"; exit 1; }
+          done
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Tools
+        run: |
+          set -eu  # no pipefail: `yes |` exits via SIGPIPE once sdkmanager closes stdin
+          sudo apt-get update
+          sudo apt-get install -y gperf php-cli make perl unzip ccache
+          yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --install "ndk;23.2.8568313" "cmake;3.22.1" "platforms;android-34" > /dev/null
+          ls "$ANDROID_SDK_ROOT/ndk" "$ANDROID_SDK_ROOT/cmake"
+          test -d "$ANDROID_SDK_ROOT/ndk/23.2.8568313"
+          test -x "$ANDROID_SDK_ROOT/cmake/3.22.1/bin/cmake"
+          test -f "$ANDROID_SDK_ROOT/platforms/android-34/android.jar"
+
+      - name: ccache restore
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.ccache
+          key: tdlib-ccache-${{ github.run_id }}
+          restore-keys: tdlib-ccache-
+
+      - name: TDLib sources + patches
+        id: src
+        run: |
+          set -euo pipefail
+          TD_COMMIT="${{ github.event.inputs.td_commit }}"
+          [[ -n "$TD_COMMIT" ]] || TD_COMMIT="$(tr -d '[:space:]' < tdlib/version.txt)"
+          echo "td_commit=$TD_COMMIT" >> "$GITHUB_OUTPUT"
+          mkdir td && cd td
+          git init -q && git remote add origin https://github.com/tdlib/td.git
+          git fetch -q --depth 1 origin "$TD_COMMIT"
+          git checkout -q FETCH_HEAD
+          for p in "$GITHUB_WORKSPACE"/tdlib-patches/*.patch; do
+            echo "applying $(basename "$p")"
+            git apply "$p"
+          done
+          grep -n disable_online_notification_delay td/telegram/NotificationManager.cpp td/telegram/OptionManager.cpp
+
+      - name: Build tdjni (arm64-v8a)
+        # TDLib's CMake picks up ccache by itself (RULE_LAUNCH_COMPILE) once the binary is on PATH
+        env:
+          CCACHE_DIR: /home/runner/.ccache
+          CCACHE_COMPILERCHECK: content
+          CCACHE_MAXSIZE: 2G
+        run: |
+          set -euo pipefail
+          ccache --zero-stats
+          cp tdlib/source/build-tdlib-impl.sh td/example/android/build-tdlib.sh
+          sed -i 's/^for ABI in arm64-v8a armeabi-v7a x86_64 x86 ; do$/for ABI in arm64-v8a ; do/' td/example/android/build-tdlib.sh
+          grep -Fxq 'for ABI in arm64-v8a ; do' td/example/android/build-tdlib.sh || { echo "::error::ABI loop was not trimmed to arm64-v8a"; exit 1; }
+          cd td/example/android
+          ./build-tdlib.sh "$ANDROID_SDK_ROOT" 23.2.8568313 "$GITHUB_WORKSPACE/tdlib/openssl" c++_static Java android-34
+          ls -la tdlib/libs/arm64-v8a build-arm64-v8a-Java/libtdjni.so*
+          ccache --show-stats
+
+      - name: ccache save
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.ccache
+          key: tdlib-ccache-${{ github.run_id }}
+
+      - name: Verify + collect assets
+        id: out
+        run: |
+          set -euo pipefail
+          mkdir out
+          # build-tdlib-impl.sh удаляет .debug из tdlib/libs после упаковки в tdlib-debug.zip;
+          # нестрипнутая копия остаётся в каталоге сборки (POST_BUILD в example/android/CMakeLists.txt)
+          cp td/example/android/tdlib/libs/arm64-v8a/libtdjni.so out/libtdjni-arm64-v8a.so
+          cp td/example/android/build-arm64-v8a-Java/libtdjni.so.debug out/libtdjni-arm64-v8a.so.debug
+          test "$(grep -c disable_online_notification_delay out/libtdjni-arm64-v8a.so)" -ge 1
+          grep -a -o -E 'lib(crypto|ssl)x?\.so' out/libtdjni-arm64-v8a.so | sort -u
+          cp tdlib-patches/*.patch out/
+          (cd out && sha256sum * > SHA256SUMS && cat SHA256SUMS)
+          echo "sha256=$(sha256sum out/libtdjni-arm64-v8a.so | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Release (prerelease)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TD_COMMIT: ${{ steps.src.outputs.td_commit }}
+          SHA256: ${{ steps.out.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          TAG="tdlib-${TD_COMMIT:0:7}-r${{ github.run_number }}"
+          [[ "${{ github.run_attempt }}" == "1" ]] || TAG="$TAG-a${{ github.run_attempt }}"
+          gh release create "$TAG" --prerelease --target "$GITHUB_SHA" --title "TDLib ${TD_COMMIT:0:7} patched (arm64)" \
+            --notes "tdlib/td@${TD_COMMIT} + tdlib-patches/*. arm64-v8a only, c++_static, RelWithDebInfo (stripped + .debug)." out/*
+          {
+            echo "td_commit=$TD_COMMIT"
+            echo "release_tag=$TAG"
+            echo "asset=libtdjni-arm64-v8a.so"
+            echo "sha256=$SHA256"
+          } | tee pinned.properties
+          { echo '```'; cat pinned.properties; echo '```'; } >> "$GITHUB_STEP_SUMMARY"

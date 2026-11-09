@@ -6150,6 +6150,7 @@ public class Tdlib implements TdlibProvider, Settings.SettingsChangeListener, Da
     client.send(new TdApi.SetOption("use_quick_ack", new TdApi.OptionValueBoolean(true)), okHandler);
     client.send(new TdApi.SetOption("use_pfs", new TdApi.OptionValueBoolean(true)), okHandler);
     client.send(new TdApi.SetOption("is_emulator", new TdApi.OptionValueBoolean(isEmulator = Settings.instance().isEmulator())), okHandler);
+    sendInstantNotificationsOption(client, Settings.instance().needInstantNotifications());
     if (isService) {
       updateNotificationParameters(client);
     } else {
@@ -6586,6 +6587,31 @@ public class Tdlib implements TdlibProvider, Settings.SettingsChangeListener, Da
       }
       // cache().setPauseStatusRefreshers(!isOnline);
     }
+  }
+
+  // Fork: patched TDLib option, see tdlib-patches/0001-disable-online-notification-delay.patch
+  private static final String OPTION_INSTANT_NOTIFICATIONS = "disable_online_notification_delay";
+
+  private void sendInstantNotificationsOption (Client client, boolean enabled) {
+    client.send(new TdApi.SetOption(OPTION_INSTANT_NOTIFICATIONS, new TdApi.OptionValueBoolean(enabled)), result -> {
+      switch (result.getConstructor()) {
+        case TdApi.Ok.CONSTRUCTOR:
+          Settings.instance().setInstantNotificationsUnsupported(false);
+          break;
+        case TdApi.Error.CONSTRUCTOR:
+          if (((TdApi.Error) result).code == 400) { // "Option can't be set": stock TDLib without the patch
+            Log.w("TDLib without instant-notifications patch: %s", TD.toErrorString(result));
+            Settings.instance().setInstantNotificationsUnsupported(true);
+          } else {
+            Log.e("SetOption %s failed: %s", OPTION_INSTANT_NOTIFICATIONS, TD.toErrorString(result));
+          }
+          break;
+      }
+    });
+  }
+
+  public void setInstantNotifications (boolean enabled) {
+    performOptional(client -> sendInstantNotificationsOption(client, enabled), null);
   }
 
   private boolean isEmulator;

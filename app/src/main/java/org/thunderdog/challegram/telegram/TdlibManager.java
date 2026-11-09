@@ -552,6 +552,15 @@ public class TdlibManager implements Iterable<TdlibAccount>, UI.StateListener {
     }
   }
 
+  public void setInstantNotifications (boolean enabled) {
+    for (TdlibAccount account : accounts) {
+      Tdlib tdlib = account.tdlib;
+      if (tdlib != null) {
+        tdlib.setInstantNotifications(enabled);
+      }
+    }
+  }
+
   // Client modification
 
   void modifyClient (Tdlib tdlib, Client client) {

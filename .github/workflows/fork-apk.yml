@@ -7,11 +7,15 @@ on:
 
 concurrency:
   group: fork-apk
-  cancel-in-progress: true
+  # пуш с [skip apk] не должен убивать идущую сборку APK
+  cancel-in-progress: ${{ !contains(github.event.head_commit.message, '[skip apk]') }}
 
 jobs:
   build:
     name: Build latestArm64Release
+    # "[skip apk]" в сообщении коммита пропускает сборку APK (например, правки только tdlib-build.yml);
+    # "[skip ci]" не подходит: он заглушил бы и сборку TDLib
+    if: "!contains(github.event.head_commit.message, '[skip apk]')"
     runs-on: ubuntu-22.04
     timeout-minutes: 350
     permissions:

@@ -1,0 +1,25 @@
+--- a/td/telegram/NotificationManager.cpp
++++ b/td/telegram/NotificationManager.cpp
+@@ -849,6 +849,10 @@
+ 
+   auto server_time = G()->server_time();
+   auto delay_ms = [&] {
++    if (td_->option_manager_->get_option_boolean("disable_online_notification_delay")) {
++      // Fork (Telegram X RG): never hold a notification back because the account is online elsewhere
++      return 0;
++    }
+     auto online_info = td_->user_manager_->get_my_online_status();
+     if (!online_info.is_online_local && online_info.is_online_remote) {
+       // If we are offline, but online from some other client, then delay notification
+--- a/td/telegram/OptionManager.cpp
++++ b/td/telegram/OptionManager.cpp
+@@ -926,6 +926,9 @@
+       if (!is_bot && set_boolean_option("disable_contact_registered_notifications")) {
+         return;
+       }
++      if (!is_bot && set_boolean_option("disable_online_notification_delay")) {
++        return;
++      }
+       if (set_boolean_option("disable_network_statistics")) {
+         return;
+       }

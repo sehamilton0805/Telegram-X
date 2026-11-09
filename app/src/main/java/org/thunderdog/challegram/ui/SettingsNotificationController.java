@@ -978,6 +978,10 @@ public class SettingsNotificationController extends RecyclerViewController<Setti
           view.getToggler().setRadioEnabled(value, isUpdate);
         } else if (itemId == R.id.btn_keepAliveService) {
           view.getToggler().setRadioEnabled(Settings.instance().needKeepAliveService(), isUpdate);
+        } else if (itemId == R.id.btn_instantNotifications) {
+          boolean unsupported = Settings.instance().isInstantNotificationsUnsupported();
+          view.setEnabledAnimated(!unsupported, isUpdate);
+          view.getToggler().setRadioEnabled(!unsupported && Settings.instance().needInstantNotifications(), isUpdate);
         } else if (itemId == R.id.btn_inApp_chatSounds) {
           view.getToggler().setRadioEnabled(tdlib.notifications().areInAppChatSoundsEnabled(), isUpdate);
         } else if (itemId == R.id.btn_customChat_pinnedMessages) {
@@ -1241,6 +1245,11 @@ public class SettingsNotificationController extends RecyclerViewController<Setti
         items.add(new ListItem(ListItem.TYPE_DESCRIPTION, 0, 0, R.string.KeepAliveServiceDesc));
 
         items.add(new ListItem(ListItem.TYPE_SHADOW_TOP));
+        items.add(new ListItem(ListItem.TYPE_RADIO_SETTING, R.id.btn_instantNotifications, 0, R.string.InstantNotifications));
+        items.add(new ListItem(ListItem.TYPE_SHADOW_BOTTOM));
+        items.add(new ListItem(ListItem.TYPE_DESCRIPTION, 0, 0, Settings.instance().isInstantNotificationsUnsupported() ? R.string.InstantNotificationsUnavailable : R.string.InstantNotificationsDesc));
+
+        items.add(new ListItem(ListItem.TYPE_SHADOW_TOP));
         items.add(new ListItem(ListItem.TYPE_SETTING, R.id.btn_archiveSettings, 0, R.string.ArchiveSettings));
         items.add(new ListItem(ListItem.TYPE_SHADOW_BOTTOM));
         items.add(new ListItem(ListItem.TYPE_DESCRIPTION, 0, 0, R.string.ArchiveSettingsDesc));
@@ -1479,6 +1488,14 @@ public class SettingsNotificationController extends RecyclerViewController<Setti
       boolean value = adapter.toggleView(v);
       Settings.instance().setNeedKeepAliveService(value);
       org.thunderdog.challegram.service.KeepAliveService.ensureRunning(context, value);
+    } else if (viewId == R.id.btn_instantNotifications) {
+      if (Settings.instance().isInstantNotificationsUnsupported()) {
+        context.tooltipManager().builder(v).icon(R.drawable.baseline_info_24).show(tdlib, Lang.getString(R.string.InstantNotificationsUnavailable));
+      } else {
+        boolean value = adapter.toggleView(v);
+        Settings.instance().setNeedInstantNotifications(value);
+        tdlib.context().setInstantNotifications(value);
+      }
     } else if (viewId == R.id.btn_foregroundSync) {
       boolean value = adapter.toggleView(v);
       Settings.instance().setNewSetting(Settings.SETTING_FLAG_FOREGROUND_SERVICE_ENABLED, value);
