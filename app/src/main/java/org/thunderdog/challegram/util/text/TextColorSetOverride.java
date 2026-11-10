@@ -62,4 +62,24 @@ public class TextColorSetOverride implements TextColorSet {
   public int outlineColorId (boolean isPressed) {
     return colorSet.outlineColorId(isPressed);
   }
+
+  @Override
+  public int quoteTextColorId () {
+    return colorSet.quoteTextColorId();
+  }
+
+  @Override
+  public int quoteLineColorId () {
+    return colorSet.quoteLineColorId();
+  }
+
+  @Override
+  public int quoteTextColor () {
+    return colorSet.quoteTextColor();
+  }
+
+  @Override
+  public int quoteLineColor () {
+    return colorSet.quoteLineColor();
+  }
 }

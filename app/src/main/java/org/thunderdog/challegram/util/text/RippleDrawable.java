@@ -26,6 +26,7 @@ import android.graphics.drawable.Drawable;
 import android.view.MotionEvent;
 import android.view.View;
 
+import androidx.annotation.ColorInt;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
@@ -54,7 +55,7 @@ public class RippleDrawable extends Drawable {
     final int left = bounds.left;
     final int top = bounds.top;
 
-    final int rippleColor = ColorUtils.alphaColor(mainAlpha, Theme.getColor(mainColorId));
+    final int rippleColor = ColorUtils.alphaColor(mainAlpha, mainColorId != 0 ? Theme.getColor(mainColorId) : mainColor);
 
     final int partsCount = parts.size();
     int offset = 0;
@@ -165,10 +166,18 @@ public class RippleDrawable extends Drawable {
   /* * */
 
   private int mainColorId;
+  private int mainColor; // raw colour, used when mainColorId == 0
   private float mainAlpha;
 
   public void setMainColorId (@ColorId int mainColorId, float mainAlpha) {
     this.mainColorId = mainColorId;
+    this.mainColor = 0;
+    this.mainAlpha = mainAlpha;
+  }
+
+  public void setMainColor (@ColorInt int mainColor, float mainAlpha) {
+    this.mainColorId = 0;
+    this.mainColor = mainColor;
     this.mainAlpha = mainAlpha;
   }
 

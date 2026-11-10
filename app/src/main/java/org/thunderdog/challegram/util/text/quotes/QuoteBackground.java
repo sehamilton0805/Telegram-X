@@ -17,6 +17,7 @@ package org.thunderdog.challegram.util.text.quotes;
 
 import android.graphics.Canvas;
 import android.graphics.Paint;
+import android.graphics.Path;
 import android.graphics.RectF;
 import android.graphics.drawable.Drawable;
 import android.text.TextPaint;
@@ -26,10 +27,8 @@ import android.view.View;
 import androidx.annotation.Nullable;
 
 import org.thunderdog.challegram.R;
-import org.thunderdog.challegram.theme.Theme;
 import org.thunderdog.challegram.tool.Drawables;
 import org.thunderdog.challegram.tool.Paints;
-import org.thunderdog.challegram.tool.PorterDuffPaint;
 import org.thunderdog.challegram.tool.Screen;
 import org.thunderdog.challegram.util.text.RippleDrawable;
 import org.thunderdog.challegram.util.text.Text;
@@ -37,6 +36,7 @@ import org.thunderdog.challegram.util.text.TextEntity;
 import org.thunderdog.challegram.util.text.TextPart;
 
 import me.vkryl.android.util.ViewProvider;
+import me.vkryl.core.ColorUtils;
 
 public class QuoteBackground {
   public static final int QUOTE_LEFT_PADDING = 11;
@@ -47,6 +47,8 @@ public class QuoteBackground {
   private static Drawable quoteDrawable;
   private static Drawable expandDrawable;
   private static final RectF tmpRect = new RectF();
+  private static final Path barPath = new Path();
+  private static final float[] barRadii = new float[8];
 
   private int topAddition;
   private int bottomAddition;
@@ -150,16 +152,24 @@ public class QuoteBackground {
 
     /* * */
 
-    final int textColorId = parent.getQuoteTextColorId();
-    final int lineColorId = parent.getQuoteLineColorId();
-    final int lineColor = Theme.getColor(lineColorId);
+    // Official look (QuoteSpan.Block.draw + ReplyMessageLine): accent-coloured bar, 10% tint, 4dp outer corners.
+    // RippleDrawable paints only the press highlight, so the resting tint is drawn here.
+    final int lineColor = parent.getQuoteLineColor();
+    final Paint linePaint = Paints.getPorterDuffPaint(lineColor);
+
+    tmpRect.set(bounds);
+    barRadii[0] = barRadii[1] = barRadii[6] = barRadii[7] = Screen.dp(3f); // left corners sit under the bar
+    barRadii[2] = barRadii[3] = barRadii[4] = barRadii[5] = Screen.dp(4f); // right corners
+    barPath.rewind();
+    barPath.addRoundRect(tmpRect, barRadii, Path.Direction.CW);
+    c.drawPath(barPath, Paints.fillingPaint(ColorUtils.color(0x1a, lineColor))); // alpha replaced: 10% of the accent
 
     ripple.setBounds((int) bounds.left, (int) bounds.top, (int) bounds.right, (int) bounds.bottom);
-    ripple.setRadius(Screen.dp(1.5f), Screen.dp(8f), Screen.dp(8f), Screen.dp(1.5f));
-    ripple.setMainColorId(lineColorId, 0.25f);
+    ripple.setRadius(Screen.dp(3f), Screen.dp(4f), Screen.dp(4f), Screen.dp(3f));
+    ripple.setMainColor(lineColor, 0.25f);
     ripple.draw(c);
 
-    Drawables.draw(c, quoteDrawable, bounds.right - Screen.dp(19), bounds.top + Screen.dp(3.5f), PorterDuffPaint.get(lineColorId));
+    Drawables.draw(c, quoteDrawable, bounds.right - Screen.dp(19), bounds.top + Screen.dp(3.5f), linePaint);
 
     if (canCollapse) {
       // Chevron in the bottom-right corner: down while folded, up while unfolded
@@ -169,17 +179,22 @@ public class QuoteBackground {
       final float cx = bounds.right - Screen.dp(11f);
       final float cy = bounds.bottom - Screen.dp(10f);
       if (collapsed) {
-        Drawables.drawCentered(c, expandDrawable, cx, cy, PorterDuffPaint.get(lineColorId));
+        Drawables.drawCentered(c, expandDrawable, cx, cy, linePaint);
       } else {
         c.save();
         c.rotate(180f, cx, cy);
-        Drawables.drawCentered(c, expandDrawable, cx, cy, PorterDuffPaint.get(lineColorId));
+        Drawables.drawCentered(c, expandDrawable, cx, cy, linePaint);
         c.restore();
       }
     }
 
+    // 3dp bar rounded on its outer (left) corners only, like the official client
     tmpRect.set(bounds);
     tmpRect.right = bounds.left + Screen.dp(3);
-    c.drawRoundRect(tmpRect, Screen.dp(1.5f), Screen.dp(1.5f), Paints.fillingPaint(lineColor));
+    barRadii[0] = barRadii[1] = barRadii[6] = barRadii[7] = Screen.dp(3f);
+    barRadii[2] = barRadii[3] = barRadii[4] = barRadii[5] = 0f;
+    barPath.rewind();
+    barPath.addRoundRect(tmpRect, barRadii, Path.Direction.CW);
+    c.drawPath(barPath, Paints.fillingPaint(lineColor));
   }
 }

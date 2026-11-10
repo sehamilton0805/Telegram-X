@@ -7549,18 +7549,65 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
     return colorSet;
   }
 
+  // Fork: block quotes take the accent the official client uses (ReplyMessageLine.check, TYPE_QUOTE):
+  // own messages keep the theme's outgoing line colour (isOutOwner branch); otherwise the forward author,
+  // then the counterpart of a private chat, then the sender
+  private boolean usesOwnQuoteColor () {
+    return isOutgoing() && !isChannel() && !isEventLog();
+  }
+
+  @Nullable
+  private TdlibAccentColor getQuoteAccentColor () {
+    if (usesOwnQuoteColor()) {
+      return null;
+    }
+    if (forwardInfo != null) {
+      TdlibAccentColor accentColor = forwardInfo.getAuthorAccentColor();
+      if (accentColor != null) {
+        return accentColor;
+      }
+    }
+    long chatId = getChatId();
+    if (tdlib.isUserChat(chatId)) {
+      return tdlib.chatAccentColor(chatId);
+    }
+    return sender.getAccentColor();
+  }
+
+  private TextColorSet overrideWithQuoteAccent (TextColorSet colorSet) {
+    final TdlibAccentColor accentColor = getQuoteAccentColor();
+    final boolean ownColor = accentColor == null && usesOwnQuoteColor();
+    return new TextColorSetOverride(colorSet) {
+      @Override
+      public int quoteLineColor () {
+        if (accentColor != null) {
+          return accentColor.getNameColor();
+        }
+        if (ownColor) { // chat_outReplyLine on the official client
+          return Theme.getColor(useBubbles() ? ColorId.bubbleOut_chatVerticalLine : ColorId.messageVerticalLine);
+        }
+        return super.quoteLineColor();
+      }
+
+      @Override
+      public int quoteTextColor () {
+        return defaultTextColor(); // quoted text keeps the regular text colour, as on the official client
+      }
+    };
+  }
+
   public final TextColorSet getLinkColorSet () {
-    return overrideWithAccent(
+    return overrideWithQuoteAccent(overrideWithAccent(
       pick(TextColorSets.Regular.LINK, TextColorSets.BubbleOut.LINK, TextColorSets.BubbleIn.LINK),
       false
-    );
+    ));
   }
 
   public final TextColorSet getTextColorSet () {
-    return overrideWithAccent(
+    return overrideWithQuoteAccent(overrideWithAccent(
       pick(TextColorSets.Regular.NORMAL, TextColorSets.BubbleOut.NORMAL, TextColorSets.BubbleIn.NORMAL),
       true
-    );
+    ));
   }
 
   public final TextColorSet getChatAuthorColorSet () {

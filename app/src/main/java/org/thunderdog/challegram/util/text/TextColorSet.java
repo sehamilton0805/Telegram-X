@@ -75,6 +75,18 @@ public interface TextColorSet {
     return ColorId.blockQuoteLine;
   }
 
+  // Fork: raw quote colours, so a message can tint its quotes with the sender's accent
+  // (the official client's QuoteSpan takes ReplyMessageLine's colour, not a theme key)
+  @ColorInt
+  default int quoteTextColor () {
+    return Theme.getColor(quoteTextColorId());
+  }
+
+  @ColorInt
+  default int quoteLineColor () {
+    return Theme.getColor(quoteLineColorId());
+  }
+
   default int overlayColorId (boolean isPressed) {
     return overlayColor(isPressed);
   }
