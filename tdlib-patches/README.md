@@ -2,9 +2,14 @@
 
 Форк использует пребилдный TDLib из сабмодуля `tdlib` (TGX-Android/tdlib). Патчи из этой папки
 накладываются на tdlib/td коммита из `tdlib/version.txt` и собираются workflow
-`.github/workflows/tdlib-build.yml` (только arm64-v8a, тот же OpenSSL, что у пребилда).
+`.github/workflows/tdlib-build.yml` так же, как сабмодуль собирает свои библиотеки
+(`tdlib/source/build-tdlib.sh`): только arm64-v8a, NDK `version.ndk_primary`, тот же OpenSSL, общий STL
+(`c++_shared`), уровень API варианта сборки приложения. Форк раздаёт один APK варианта `nop`
+(Android 7.0 и новее, minSdk 24), поэтому уровень API — 24 (`TDLIB_API` в workflow).
 Результат публикуется prerelease-релизом `tdlib-<коммит>-r<N>`, а `pinned.properties` указывает
-сборке APK (`fork-apk.yml`), какой ассет подменяет `tdlib/src/main/libs/arm64-v8a/libtdjni.so`.
+сборке APK (`fork-apk.yml`), какой ассет подменяет
+`tdlib/src/main/libs/<NDK>/android-24/arm64-v8a/libtdjni.so`. Строка `api=` в пине должна совпадать
+с уровнем API в `fork-apk.yml`: библиотека, собранная под более новый Android, не загрузится на старом.
 
 ## 0001-disable-online-notification-delay
 
@@ -21,5 +26,6 @@
 
 1. Обновить сабмодуль `tdlib` (новый `version.txt`).
 2. Запустить `tdlib-build.yml` (коммит берётся из `version.txt`); при конфликте патча — поправить патч.
-3. Перенести `pinned.properties` из summary прогона в эту папку тем же коммитом, что и сабмодуль:
-   `fork-apk.yml` падает, если коммит в pin не совпадает с `tdlib/version.txt`.
+3. Перенести `pinned.properties` из summary прогона (все пять строк, включая `api=`) в эту папку тем же
+   коммитом, что и сабмодуль: `fork-apk.yml` падает, если коммит в pin не совпадает с
+   `tdlib/version.txt` или уровень API не совпадает с вариантом сборки.

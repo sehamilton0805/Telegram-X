@@ -53,6 +53,8 @@ jobs:
           gh release download "$TAG" -p "$ASSET" -D "$RUNNER_TEMP/tdlib" --clobber
           echo "$SHA  $RUNNER_TEMP/tdlib/$ASSET" | sha256sum -c -
           cp "$RUNNER_TEMP/tdlib/$ASSET" "$TARGET"
+          # До часовой сборки: в подменённом файле должна быть опция патча
+          grep -aq disable_online_notification_delay "$TARGET" || { echo "::error::$TAG/$ASSET is not the patched library"; exit 1; }
           echo "patched TDLib $TAG installed into $TARGET: $(grep -c disable_online_notification_delay "$TARGET") option string(s)"
 
       - name: Set up JDK
@@ -170,22 +172,51 @@ jobs:
 
       # После выгрузки артефакта: если проверка ошибётся сама, собранный APK останется в прогоне
       - name: Verify APK
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.SIGNING_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
         run: |
           set -euo pipefail
           APK_COUNT=$(find app/build/outputs/apk -name '*.apk' | wc -l)
           [[ "$APK_COUNT" == "1" ]] || { echo "::error::expected exactly one APK, found $APK_COUNT"; find app/build/outputs/apk -name '*.apk'; exit 1; }
           APK=$(find app/build/outputs/apk -name '*.apk' | head -1)
-          # APK должен ставиться на Android 7.0 и новее: minSdk 24 и никакой верхней границы
+          [[ "$APK" != *-unsigned* ]] || { echo "::error::the APK is unsigned: $APK"; exit 1; }
+          # APK должен встать поверх прежних сборок и на Android 7.0 и новее: тот же applicationId, код версии
+          # выше, чем у любой прежней сборки, minSdk 24 и никакой верхней границы
           AAPT2=$(find "$ANDROID_SDK_ROOT/build-tools" -name aapt2 -type f | sort -V | tail -1)
           [[ -n "$AAPT2" ]] || { echo "::error::aapt2 not found under $ANDROID_SDK_ROOT/build-tools"; exit 1; }
           BADGING=$("$AAPT2" dump badging "$APK")
           grep -E "^(package|sdkVersion|maxSdkVersion|targetSdkVersion|native-code)" <<< "$BADGING"
+          grep -q "^package: name='dev.redgreen.tgx' " <<< "$BADGING" || { echo "::error::applicationId of the APK is not dev.redgreen.tgx"; exit 1; }
+          VERSION_CODE=$(sed -n "s/^package: .* versionCode='\([0-9]*\)'.*/\1/p" <<< "$BADGING")
+          BUILD_VERSION=$((1800 + ${{ github.run_number }}))
+          [[ -n "$VERSION_CODE" && "$VERSION_CODE" -ge $((BUILD_VERSION * 1000)) && "$VERSION_CODE" -lt $(((BUILD_VERSION + 1) * 1000)) ]] || { echo "::error::versionCode '$VERSION_CODE' is outside the range of build $BUILD_VERSION"; exit 1; }
           grep -q "^sdkVersion:'24'" <<< "$BADGING" || { echo "::error::minSdk of the APK is not 24"; exit 1; }
           if grep -q "^maxSdkVersion" <<< "$BADGING"; then echo "::error::the APK declares maxSdkVersion"; exit 1; fi
-          # Внутри должна лежать патченная библиотека: промах по каталогу варианта оставил бы апстримную
+          # Нативные библиотеки: только arm64-v8a; патченная libtdjni.so и всё, без чего она не загрузится
+          # (общий STL и OpenSSL сабмодуля)
+          LIBS=$(unzip -Z1 "$APK" 'lib/*')
+          echo "$LIBS"
+          ABIS=$(cut -d/ -f2 <<< "$LIBS" | sort -u | tr '\n' ' ')
+          [[ "$ABIS" == "arm64-v8a " ]] || { echo "::error::unexpected ABI set in the APK: $ABIS"; exit 1; }
+          for so in libtdjni.so libc++_shared.so libcryptox.so libsslx.so; do
+            grep -qxF "lib/arm64-v8a/$so" <<< "$LIBS" || { echo "::error::$so is missing from the APK"; exit 1; }
+          done
+          # Промах по каталогу варианта оставил бы в APK апстримную библиотеку без патча
           PATCHED=$(unzip -p "$APK" lib/arm64-v8a/libtdjni.so | grep -c disable_online_notification_delay || true)
           [[ "$PATCHED" -ge 1 ]] || { echo "::error::libtdjni.so inside the APK is not the patched one"; exit 1; }
-          unzip -l "$APK" 'lib/arm64-v8a/*'
+          # Подпись: тем же ключом, что и прежние сборки (он в секретах), иначе Android не поставит APK поверх
+          # установленного. Не удалось получить отпечатки - это предупреждение, а не отказ
+          APKSIGNER=$(find "$ANDROID_SDK_ROOT/build-tools" -name apksigner -type f | sort -V | tail -1)
+          APK_CERT=$("$APKSIGNER" verify --print-certs "$APK" 2>/dev/null | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1 || true)
+          KEY_CERT=$(keytool -list -keystore "$RUNNER_TEMP/signing/tgx-fork.p12" -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" 2>/dev/null | sed -n 's/^Certificate fingerprint (SHA-256): //p' | tr -d ':' | tr 'A-F' 'a-f' | head -1 || true)
+          if [[ -z "$APK_CERT" || -z "$KEY_CERT" ]]; then
+            echo "::warning::could not compare the APK signer with the keystore (apk: '$APK_CERT', keystore: '$KEY_CERT')"
+          elif [[ "$APK_CERT" != "$KEY_CERT" ]]; then
+            echo "::error::the APK is signed with $APK_CERT, the release key is $KEY_CERT"; exit 1
+          else
+            echo "signed with the release key, certificate SHA-256 $APK_CERT"
+          fi
 
       - name: Publish release
         env:
@@ -210,6 +241,6 @@ jobs:
             # может не дать поставить (HTTP 403 в tdlib-build.yml 23.11); ветка и коммит записаны в названии
             gh release create "$TAG" "Telegram-X-RG-$TAG-$SHORT_SHA.apk" \
               --title "Telegram X RG $TAG pre-release (${{ github.ref_name }}, $SHORT_SHA)" \
-              --notes "Pre-release build of branch ${{ github.ref_name }} for testing. Commit: ${{ github.sha }}" \
+              --notes "Тестовая сборка ветки ${{ github.ref_name }}, для проверки перед выпуском. Игрокам: ставьте сборку с пометкой Latest. Commit: ${{ github.sha }}" \
               --prerelease --latest=false
           fi
