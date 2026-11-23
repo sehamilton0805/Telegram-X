@@ -1,6 +1,7 @@
 name: Fork compile check
 
-# Быстрая проверка, что Java и Kotlin собираются: без нативных библиотек, без R8, без APK и без релиза.
+# Проверка, что Java и Kotlin собираются: без R8, без APK и без релиза. Нативные зависимости (libvpx, ffmpeg,
+# tlottie) всё равно собираются: от них зависит preBuild варианта; после первого прогона они берутся из кэша.
 # Запускается на рабочих ветках wip/**, чтобы ошибку компиляции было видно раньше, чем в полной сборке
 # ветки fork (Fork APK), и чтобы черновая работа не уходила игрокам релизом.
 
@@ -38,13 +39,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y git-lfs unzip sed wget make clang yasm nasm ccache
 
-      - name: Gradle cache
-        uses: actions/cache@v4
+      - name: Gradle cache restore
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-          key: gradle-compile-${{ hashFiles('**/*.gradle.kts', 'gradle/**') }}
+          key: gradle-compile-${{ github.run_id }}
           restore-keys: gradle-compile-
 
       - name: Prepare signing config
@@ -74,11 +75,21 @@ jobs:
         run: |
           export TERM=xterm
           export KEYSTORE_FILE="$RUNNER_TEMP/signing/keystore.properties"
-          # Нативные библиотеки (ffmpeg, libvpx, tlottie) собирают отдельные задачи Gradle, компиляции Java они
-          # не нужны. Конфигурация требует только путь rust.dir, его пишет setup-properties.sh из rustup
+          # tlottie собирается Cargo: нужен Rust версии version.rust с целями Android
+          bash scripts/setup-rust.sh
           bash scripts/setup.sh
           # No Firebase plugin and no token validation: nothing is shipped from here
           echo "app.experimental=true" >> local.properties
 
       - name: Compile Java and Kotlin
         run: ./gradlew :app:compileLatestReleaseJavaWithJavac -Pabi=arm64 --stacktrace --no-daemon
+
+      # И после упавшего прогона: собранные нативные библиотеки уже лежат в кэше сборки Gradle
+      - name: Gradle cache save
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-compile-${{ github.run_id }}

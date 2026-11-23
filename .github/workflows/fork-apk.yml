@@ -63,17 +63,17 @@ jobs:
           sudo apt-get install -y git-lfs unzip sed wget make clang yasm nasm ccache
 
       # ffmpeg, libvpx и tlottie теперь собирают задачи Gradle с кэшем сборки (~/.gradle/caches/build-cache-1).
-      # Ключ уникален для коммита, чтобы кэш сохранялся после каждой сборки, а брался самый свежий
-      - name: Gradle cache
-        uses: actions/cache@v4
+      # Ключ уникален для прогона, чтобы кэш сохранялся после каждой сборки (и упавшей тоже), а брался самый свежий
+      - name: Gradle cache restore
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-          key: gradle-${{ hashFiles('**/*.gradle.kts', 'gradle/**', 'version.properties') }}-${{ github.sha }}
+          key: gradle-apk-${{ github.run_id }}
           restore-keys: |
-            gradle-${{ hashFiles('**/*.gradle.kts', 'gradle/**', 'version.properties') }}-
-            gradle-
+            gradle-apk-
+            gradle-compile-
 
       - name: ccache
         uses: actions/cache@v4
@@ -143,6 +143,15 @@ jobs:
           # Вариантов по ABI больше нет: набор ABI задаёт -Pabi, без него собрались бы все четыре
           ./gradlew :app:assembleLatestRelease -Pabi=arm64 --stacktrace --no-daemon
           ccache --show-stats
+
+      - name: Gradle cache save
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-apk-${{ github.run_id }}
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
