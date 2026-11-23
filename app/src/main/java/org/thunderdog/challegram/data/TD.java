@@ -2479,9 +2479,26 @@ public class TD {
   public static final class RichTextFormatter {
     private final StringBuilder text = new StringBuilder();
     private final java.util.ArrayList<TdApi.TextEntity> entities = new java.util.ArrayList<>();
+    // Plain mode feeds previews, notifications and the copied text: nothing
+    // stands in for a custom emoji that has no alternative text
+    private final boolean plain;
+    private boolean joinNextLine;
+    private int quoteDepth;
+
+    public RichTextFormatter () {
+      this(false);
+    }
+
+    public RichTextFormatter (boolean plain) {
+      this.plain = plain;
+    }
 
     public int length () {
       return text.length();
+    }
+
+    public String plainText () {
+      return text.toString();
     }
 
     public boolean isBlank () {
@@ -2496,8 +2513,61 @@ public class TD {
     }
 
     public RichTextFormatter newLine () {
+      if (joinNextLine) {
+        // A list label waits for its item on the same line
+        joinNextLine = false;
+        return this;
+      }
       if (text.length() > 0 && text.charAt(text.length() - 1) != '\n') {
         text.append('\n');
+      }
+      return this;
+    }
+
+    // What follows continues the current line instead of starting a new one
+    public RichTextFormatter joinNextLine () {
+      joinNextLine = true;
+      return this;
+    }
+
+    public RichTextFormatter endJoin () {
+      joinNextLine = false;
+      return this;
+    }
+
+    // The block that follows starts on its own line; returns its offset
+    public int startBlock () {
+      // A block that needs lines of its own does not share one with a list label
+      joinNextLine = false;
+      newLine();
+      return text.length();
+    }
+
+    // Block-level entity (quote, code block) over everything appended since
+    // the given offset; the line break that ends the block stays outside
+    public RichTextFormatter mark (int start, TdApi.TextEntityType type) {
+      int end = text.length();
+      while (end > start && text.charAt(end - 1) == '\n') {
+        end--;
+      }
+      if (end > start) {
+        entities.add(new TdApi.TextEntity(start, end - start, type));
+      }
+      return this;
+    }
+
+    // Quotes do not nest in a message text: only the outermost one becomes
+    // an entity, the inner ones just contribute their lines
+    public int startQuote () {
+      int start = startBlock();
+      quoteDepth++;
+      return start;
+    }
+
+    public RichTextFormatter endQuote (int start, TdApi.TextEntityType type) {
+      quoteDepth--;
+      if (quoteDepth == 0) {
+        mark(start, type);
       }
       return this;
     }
@@ -2531,7 +2601,16 @@ public class TD {
           wrap(((TdApi.RichTextStrikethrough) richText).text, new TdApi.TextEntityTypeStrikethrough());
           break;
         case TdApi.RichTextSpoiler.CONSTRUCTOR:
-          wrap(((TdApi.RichTextSpoiler) richText).text, new TdApi.TextEntityTypeSpoiler());
+          if (plain) {
+            // Previews and notifications must not give a spoiler away
+            String hidden = new RichTextFormatter(true).append(((TdApi.RichTextSpoiler) richText).text).plainText();
+            for (int i = 0; i < hidden.length(); i++) {
+              char ch = hidden.charAt(i);
+              text.append(Character.isWhitespace(ch) ? ch : '▒');
+            }
+          } else {
+            wrap(((TdApi.RichTextSpoiler) richText).text, new TdApi.TextEntityTypeSpoiler());
+          }
           break;
         case TdApi.RichTextFixed.CONSTRUCTOR:
           wrap(((TdApi.RichTextFixed) richText).text, new TdApi.TextEntityTypeCode());
@@ -2587,10 +2666,12 @@ public class TD {
           break;
         case TdApi.RichTextCustomEmoji.CONSTRUCTOR: {
           TdApi.RichTextCustomEmoji emoji = (TdApi.RichTextCustomEmoji) richText;
-          String alternative = StringUtils.isEmpty(emoji.alternativeText) ? "⬜" : emoji.alternativeText;
+          String alternative = StringUtils.isEmpty(emoji.alternativeText) ? (plain ? "" : "⬜") : emoji.alternativeText;
           int start = text.length();
           text.append(alternative);
-          entities.add(new TdApi.TextEntity(start, text.length() - start, new TdApi.TextEntityTypeCustomEmoji(emoji.customEmojiId)));
+          if (text.length() > start) {
+            entities.add(new TdApi.TextEntity(start, text.length() - start, new TdApi.TextEntityTypeCustomEmoji(emoji.customEmojiId)));
+          }
           break;
         }
         case TdApi.RichTextMathematicalExpression.CONSTRUCTOR:
@@ -2641,13 +2722,56 @@ public class TD {
     }
 
     public TdApi.FormattedText build () {
-      // Drop a trailing newline; entities never cover it, offsets stay valid
+      // Drop a trailing newline; an entity that reached into it is cut back
       int end = text.length();
       while (end > 0 && text.charAt(end - 1) == '\n') {
         end--;
       }
       String result = text.substring(0, end);
-      return new TdApi.FormattedText(result, entities.isEmpty() ? null : entities.toArray(new TdApi.TextEntity[0]));
+      java.util.ArrayList<TdApi.TextEntity> sorted = new java.util.ArrayList<>(entities.size());
+      for (TdApi.TextEntity entity : entities) {
+        if (entity.offset >= end) {
+          continue;
+        }
+        if (entity.offset + entity.length > end) {
+          sorted.add(new TdApi.TextEntity(entity.offset, end - entity.offset, entity.type));
+        } else {
+          sorted.add(entity);
+        }
+      }
+      if (sorted.isEmpty()) {
+        return new TdApi.FormattedText(result, null);
+      }
+      // The text engine walks entities the way TDLib sends them: by offset,
+      // an outer entity before the ones it contains (TextEntity.valueOf).
+      // Rich text is collected inner-first, and in that order the engine
+      // rejected nested formatting altogether, custom emoji included
+      java.util.Collections.sort(sorted, (a, b) -> {
+        if (a.offset != b.offset) {
+          return Integer.compare(a.offset, b.offset);
+        }
+        if (a.length != b.length) {
+          return Integer.compare(b.length, a.length);
+        }
+        return Integer.compare(nestingRank(a.type), nestingRank(b.type));
+      });
+      return new TdApi.FormattedText(result, sorted.toArray(new TdApi.TextEntity[0]));
+    }
+
+    // Same range: block-level entities go outside, a custom emoji inside
+    private static int nestingRank (TdApi.TextEntityType type) {
+      switch (type.getConstructor()) {
+        case TdApi.TextEntityTypeBlockQuote.CONSTRUCTOR:
+        case TdApi.TextEntityTypeExpandableBlockQuote.CONSTRUCTOR:
+          return 0;
+        case TdApi.TextEntityTypePre.CONSTRUCTOR:
+        case TdApi.TextEntityTypePreCode.CONSTRUCTOR:
+          return 1;
+        case TdApi.TextEntityTypeCustomEmoji.CONSTRUCTOR:
+          return 3;
+        default:
+          return 2;
+      }
     }
   }
 
@@ -2675,6 +2799,99 @@ public class TD {
     formatter.append(richText);
   }
 
+  private static boolean isBlankRichText (@Nullable TdApi.RichText richText) {
+    return richText == null || new RichTextFormatter().append(richText).isBlank();
+  }
+
+  private static void appendQuoteCredit (RichTextFormatter formatter, @Nullable TdApi.RichText credit) {
+    if (!isBlankRichText(credit)) {
+      formatter.newLine();
+      formatter.appendPlain("— ");
+      formatter.append(new TdApi.RichTextItalic(credit));
+    }
+  }
+
+  private static void appendCaptionFormatted (RichTextFormatter formatter, @Nullable TdApi.PageBlockCaption caption) {
+    if (caption != null) {
+      appendFormattedLine(formatter, caption.text, null);
+    }
+  }
+
+  // A block the bubble has no renderer for: a line that names it, so that it
+  // does not vanish without a trace
+  private static void appendFallbackLine (RichTextFormatter formatter, String glyph, @Nullable String title, @Nullable TdApi.PageBlockCaption caption) {
+    formatter.newLine();
+    formatter.appendPlain(StringUtils.isEmpty(title) ? glyph : glyph + " " + title);
+    appendCaptionFormatted(formatter, caption);
+  }
+
+  private static @Nullable String richBlockAudioTitle (TdApi.Audio audio) {
+    boolean hasTitle = !StringUtils.isEmpty(audio.title);
+    boolean hasPerformer = !StringUtils.isEmpty(audio.performer);
+    if (hasTitle && hasPerformer) {
+      return audio.performer + " — " + audio.title;
+    }
+    if (hasTitle) {
+      return audio.title;
+    }
+    if (hasPerformer) {
+      return audio.performer;
+    }
+    return audio.fileName;
+  }
+
+  // Marker of a list item: the label TDLib gives, else one made from the
+  // item numbering, else a bullet
+  public static String listItemLabel (TdApi.PageBlockListItem item) {
+    if (item.hasCheckbox) {
+      return item.isChecked ? "☑" : "☐";
+    }
+    if (!StringUtils.isEmpty(item.label)) {
+      return item.label;
+    }
+    if (item.value > 0 && !StringUtils.isEmpty(item.type)) {
+      switch (item.type) {
+        case "a":
+          return listItemLetters(item.value) + ".";
+        case "A":
+          return listItemLetters(item.value).toUpperCase(java.util.Locale.ROOT) + ".";
+        case "i":
+          return listItemRoman(item.value).toLowerCase(java.util.Locale.ROOT) + ".";
+        case "I":
+          return listItemRoman(item.value) + ".";
+        default:
+          return item.value + ".";
+      }
+    }
+    return "•";
+  }
+
+  private static String listItemLetters (int value) {
+    StringBuilder b = new StringBuilder();
+    while (value > 0) {
+      value--;
+      b.insert(0, (char) ('a' + value % 26));
+      value /= 26;
+    }
+    return b.toString();
+  }
+
+  private static String listItemRoman (int value) {
+    if (value <= 0 || value >= 4000) {
+      return Integer.toString(value);
+    }
+    final int[] numbers = {1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1};
+    final String[] letters = {"M", "CM", "D", "CD", "C", "XC", "L", "XL", "X", "IX", "V", "IV", "I"};
+    StringBuilder b = new StringBuilder();
+    for (int i = 0; i < numbers.length; i++) {
+      while (value >= numbers[i]) {
+        b.append(letters[i]);
+        value -= numbers[i];
+      }
+    }
+    return b.toString();
+  }
+
   private static void appendPageBlockFormatted (RichTextFormatter formatter, TdApi.PageBlock block) {
     switch (block.getConstructor()) {
       case TdApi.PageBlockTitle.CONSTRUCTOR:
@@ -2698,53 +2915,108 @@ public class TD {
       case TdApi.PageBlockParagraph.CONSTRUCTOR:
         appendFormattedLine(formatter, ((TdApi.PageBlockParagraph) block).text, null);
         break;
-      case TdApi.PageBlockPreformatted.CONSTRUCTOR:
-        appendFormattedLine(formatter, ((TdApi.PageBlockPreformatted) block).text, null);
-        break;
       case TdApi.PageBlockFooter.CONSTRUCTOR:
         appendFormattedLine(formatter, ((TdApi.PageBlockFooter) block).footer, null);
         break;
-      case TdApi.PageBlockPullQuote.CONSTRUCTOR:
-        appendFormattedLine(formatter, ((TdApi.PageBlockPullQuote) block).text, "❝ ");
+      case TdApi.PageBlockAuthorDate.CONSTRUCTOR:
+        appendFormattedLine(formatter, ((TdApi.PageBlockAuthorDate) block).author, null);
         break;
-      case TdApi.PageBlockExpandableBlockQuote.CONSTRUCTOR:
-        appendFormattedLine(formatter, ((TdApi.PageBlockExpandableBlockQuote) block).text, "❝ ");
-        break;
-      case TdApi.PageBlockBlockQuote.CONSTRUCTOR: {
-        TdApi.PageBlockBlockQuote quote = (TdApi.PageBlockBlockQuote) block;
-        if (quote.blocks != null) {
-          boolean first = true;
-          for (TdApi.PageBlock innerBlock : quote.blocks) {
-            TdApi.RichText inner = richTextOfBlock(innerBlock);
-            if (inner != null) {
-              appendFormattedLine(formatter, inner, first ? "❝ " : null);
-              first = false;
-            }
-          }
+      case TdApi.PageBlockThinking.CONSTRUCTOR: {
+        TdApi.RichText thinking = ((TdApi.PageBlockThinking) block).text;
+        if (!isBlankRichText(thinking)) {
+          appendFormattedLine(formatter, new TdApi.RichTextItalic(thinking), null);
         }
         break;
       }
+      case TdApi.PageBlockPreformatted.CONSTRUCTOR: {
+        // A code block: monospace on lines of its own
+        // The text goes in without inline styles: the engine puts every
+        // styled run inside a code block on a line of its own
+        TdApi.PageBlockPreformatted preformatted = (TdApi.PageBlockPreformatted) block;
+        String code = richTextToString(preformatted.text);
+        if (code != null && !code.trim().isEmpty()) {
+          int start = formatter.startBlock();
+          formatter.appendPlain(code);
+          formatter.mark(start, StringUtils.isEmpty(preformatted.language) ? new TdApi.TextEntityTypePre() : new TdApi.TextEntityTypePreCode(preformatted.language));
+        }
+        break;
+      }
+      case TdApi.PageBlockMathematicalExpression.CONSTRUCTOR: {
+        // No formula renderer: the source of the expression, as code
+        String expression = ((TdApi.PageBlockMathematicalExpression) block).expression;
+        if (expression != null && !expression.trim().isEmpty()) {
+          int start = formatter.startBlock();
+          formatter.appendPlain(expression);
+          formatter.mark(start, new TdApi.TextEntityTypePre());
+        }
+        break;
+      }
+      case TdApi.PageBlockPullQuote.CONSTRUCTOR: {
+        TdApi.PageBlockPullQuote quote = (TdApi.PageBlockPullQuote) block;
+        if (!isBlankRichText(quote.text)) {
+          int start = formatter.startQuote();
+          formatter.append(new TdApi.RichTextItalic(quote.text));
+          appendQuoteCredit(formatter, quote.credit);
+          formatter.endQuote(start, new TdApi.TextEntityTypeBlockQuote());
+        }
+        break;
+      }
+      case TdApi.PageBlockExpandableBlockQuote.CONSTRUCTOR: {
+        TdApi.PageBlockExpandableBlockQuote quote = (TdApi.PageBlockExpandableBlockQuote) block;
+        if (!isBlankRichText(quote.text)) {
+          int start = formatter.startQuote();
+          formatter.append(quote.text);
+          appendQuoteCredit(formatter, quote.credit);
+          formatter.endQuote(start, new TdApi.TextEntityTypeExpandableBlockQuote());
+        }
+        break;
+      }
+      case TdApi.PageBlockBlockQuote.CONSTRUCTOR: {
+        TdApi.PageBlockBlockQuote quote = (TdApi.PageBlockBlockQuote) block;
+        int start = formatter.startQuote();
+        if (quote.blocks != null) {
+          for (TdApi.PageBlock innerBlock : quote.blocks) {
+            appendPageBlockFormatted(formatter, innerBlock);
+          }
+        }
+        if (formatter.length() > start) {
+          appendQuoteCredit(formatter, quote.credit);
+        }
+        formatter.endQuote(start, new TdApi.TextEntityTypeBlockQuote());
+        break;
+      }
       case TdApi.PageBlockList.CONSTRUCTOR: {
+        // Only lists nested in a quote get here: the bubble lays the others
+        // out item by item, with hanging markers
         TdApi.PageBlockList list = (TdApi.PageBlockList) block;
         if (list.items != null) {
           for (TdApi.PageBlockListItem item : list.items) {
-            if (item.blocks != null) {
-              boolean first = true;
-              for (TdApi.PageBlock innerBlock : item.blocks) {
-                TdApi.RichText inner = richTextOfBlock(innerBlock);
-                if (inner != null) {
-                  appendFormattedLine(formatter, inner, first ? "• " : null);
-                  first = false;
-                }
-              }
+            if (item == null || item.blocks == null) {
+              continue;
             }
+            RichTextFormatter probe = new RichTextFormatter();
+            for (TdApi.PageBlock innerBlock : item.blocks) {
+              appendPageBlockFormatted(probe, innerBlock);
+            }
+            if (probe.isBlank()) {
+              continue;
+            }
+            formatter.newLine();
+            formatter.appendPlain(listItemLabel(item) + " ");
+            formatter.joinNextLine();
+            for (TdApi.PageBlock innerBlock : item.blocks) {
+              appendPageBlockFormatted(formatter, innerBlock);
+            }
+            formatter.endJoin();
           }
         }
         break;
       }
       case TdApi.PageBlockDetails.CONSTRUCTOR: {
         TdApi.PageBlockDetails details = (TdApi.PageBlockDetails) block;
-        appendFormattedLine(formatter, details.header, null);
+        if (!isBlankRichText(details.header)) {
+          appendFormattedLine(formatter, new TdApi.RichTextBold(details.header), null);
+        }
         if (details.blocks != null) {
           for (TdApi.PageBlock innerBlock : details.blocks) {
             appendPageBlockFormatted(formatter, innerBlock);
@@ -2755,36 +3027,111 @@ public class TD {
       case TdApi.PageBlockCover.CONSTRUCTOR:
         appendPageBlockFormatted(formatter, ((TdApi.PageBlockCover) block).cover);
         break;
+      case TdApi.PageBlockTable.CONSTRUCTOR: {
+        // Only tables nested in a quote get here: row by row
+        TdApi.PageBlockTable table = (TdApi.PageBlockTable) block;
+        appendFormattedLine(formatter, table.caption, null);
+        if (table.cells != null) {
+          for (TdApi.PageBlockTableCell[] row : table.cells) {
+            if (row == null) {
+              continue;
+            }
+            boolean hasText = false;
+            for (TdApi.PageBlockTableCell cell : row) {
+              if (cell != null && !isBlankRichText(cell.text)) {
+                hasText = true;
+                break;
+              }
+            }
+            if (!hasText) {
+              continue;
+            }
+            formatter.newLine();
+            boolean firstCell = true;
+            for (TdApi.PageBlockTableCell cell : row) {
+              if (!firstCell) {
+                formatter.appendPlain(" | ");
+              }
+              firstCell = false;
+              if (cell != null) {
+                formatter.append(cell.text);
+              }
+            }
+          }
+        }
+        break;
+      }
+      case TdApi.PageBlockAudio.CONSTRUCTOR: {
+        TdApi.PageBlockAudio audio = (TdApi.PageBlockAudio) block;
+        appendFallbackLine(formatter, "🎵", audio.audio != null ? richBlockAudioTitle(audio.audio) : null, audio.caption);
+        break;
+      }
+      case TdApi.PageBlockVoiceNote.CONSTRUCTOR:
+        appendFallbackLine(formatter, "🎤", Lang.getString(R.string.ChatContentVoice), ((TdApi.PageBlockVoiceNote) block).caption);
+        break;
+      case TdApi.PageBlockDocument.CONSTRUCTOR: {
+        TdApi.PageBlockDocument document = (TdApi.PageBlockDocument) block;
+        appendFallbackLine(formatter, "📎", document.document != null ? document.document.fileName : null, document.caption);
+        break;
+      }
+      case TdApi.PageBlockMap.CONSTRUCTOR:
+        appendFallbackLine(formatter, "📍", Lang.getString(R.string.Location), ((TdApi.PageBlockMap) block).caption);
+        break;
+      case TdApi.PageBlockEmbedded.CONSTRUCTOR: {
+        TdApi.PageBlockEmbedded embedded = (TdApi.PageBlockEmbedded) block;
+        if (!StringUtils.isEmpty(embedded.url)) {
+          formatter.newLine();
+          formatter.append(new TdApi.RichTextUrl(new TdApi.RichTextPlain(embedded.url), embedded.url, false));
+        }
+        appendCaptionFormatted(formatter, embedded.caption);
+        break;
+      }
+      case TdApi.PageBlockEmbeddedPost.CONSTRUCTOR: {
+        TdApi.PageBlockEmbeddedPost post = (TdApi.PageBlockEmbeddedPost) block;
+        if (!StringUtils.isEmpty(post.author)) {
+          formatter.newLine();
+          formatter.append(new TdApi.RichTextBold(new TdApi.RichTextPlain(post.author)));
+        }
+        if (post.blocks != null) {
+          for (TdApi.PageBlock innerBlock : post.blocks) {
+            appendPageBlockFormatted(formatter, innerBlock);
+          }
+        }
+        appendCaptionFormatted(formatter, post.caption);
+        break;
+      }
+      case TdApi.PageBlockChatLink.CONSTRUCTOR: {
+        TdApi.PageBlockChatLink chatLink = (TdApi.PageBlockChatLink) block;
+        if (!StringUtils.isEmpty(chatLink.username)) {
+          String title = StringUtils.isEmpty(chatLink.title) ? "@" + chatLink.username : chatLink.title;
+          formatter.newLine();
+          formatter.append(new TdApi.RichTextUrl(new TdApi.RichTextPlain(title), "https://t.me/" + chatLink.username, false));
+        } else if (!StringUtils.isEmpty(chatLink.title)) {
+          formatter.newLine();
+          formatter.appendPlain(chatLink.title);
+        }
+        break;
+      }
+      case TdApi.PageBlockRelatedArticles.CONSTRUCTOR: {
+        TdApi.PageBlockRelatedArticles related = (TdApi.PageBlockRelatedArticles) block;
+        if (!isBlankRichText(related.header)) {
+          appendFormattedLine(formatter, new TdApi.RichTextBold(related.header), null);
+        }
+        if (related.articles != null) {
+          for (TdApi.PageBlockRelatedArticle article : related.articles) {
+            if (article != null && !StringUtils.isEmpty(article.url)) {
+              formatter.newLine();
+              formatter.append(new TdApi.RichTextUrl(new TdApi.RichTextPlain(StringUtils.isEmpty(article.title) ? article.url : article.title), article.url, false));
+            }
+          }
+        }
+        break;
+      }
       default:
-        // Dividers, anchors, tables, maps, embeds, media - not part of a text run
+        // Dividers and tables are parts of the bubble in their own right;
+        // anchors, media and blocks of a newer layer have no text
         break;
     }
-  }
-
-  private static @Nullable TdApi.RichText richTextOfBlock (TdApi.PageBlock block) {
-    switch (block.getConstructor()) {
-      case TdApi.PageBlockParagraph.CONSTRUCTOR:
-        return ((TdApi.PageBlockParagraph) block).text;
-      case TdApi.PageBlockPreformatted.CONSTRUCTOR:
-        return ((TdApi.PageBlockPreformatted) block).text;
-      case TdApi.PageBlockTitle.CONSTRUCTOR:
-        return ((TdApi.PageBlockTitle) block).title;
-      case TdApi.PageBlockSubtitle.CONSTRUCTOR:
-        return ((TdApi.PageBlockSubtitle) block).subtitle;
-      case TdApi.PageBlockHeader.CONSTRUCTOR:
-        return ((TdApi.PageBlockHeader) block).header;
-      case TdApi.PageBlockSubheader.CONSTRUCTOR:
-        return ((TdApi.PageBlockSubheader) block).subheader;
-      case TdApi.PageBlockSectionHeading.CONSTRUCTOR:
-        return ((TdApi.PageBlockSectionHeading) block).text;
-      case TdApi.PageBlockFooter.CONSTRUCTOR:
-        return ((TdApi.PageBlockFooter) block).footer;
-      case TdApi.PageBlockKicker.CONSTRUCTOR:
-        return ((TdApi.PageBlockKicker) block).kicker;
-      case TdApi.PageBlockPullQuote.CONSTRUCTOR:
-        return ((TdApi.PageBlockPullQuote) block).text;
-    }
-    return null;
   }
 
   private static void appendLine (StringBuilder b, @Nullable String line) {
@@ -2851,7 +3198,7 @@ public class TD {
                 appendPageBlockText(inner, innerBlock, mediaCount);
               }
             }
-            appendLine(b, inner.length() > 0 ? "• " + inner.toString().replace("\n", " ") : null);
+            appendLine(b, inner.length() > 0 ? listItemLabel(item) + " " + inner.toString().replace("\n", " ") : null);
           }
         }
         break;
@@ -2909,8 +3256,52 @@ public class TD {
         mediaCount[0]++;
         appendCaption(b, ((TdApi.PageBlockVoiceNote) block).caption);
         break;
+      case TdApi.PageBlockDocument.CONSTRUCTOR: {
+        TdApi.PageBlockDocument document = (TdApi.PageBlockDocument) block;
+        if (document.document != null && !StringUtils.isEmpty(document.document.fileName)) {
+          appendLine(b, "📎 " + document.document.fileName);
+        }
+        appendCaption(b, document.caption);
+        break;
+      }
+      case TdApi.PageBlockExpandableBlockQuote.CONSTRUCTOR: {
+        String text = richTextToString(((TdApi.PageBlockExpandableBlockQuote) block).text);
+        appendLine(b, text != null && !text.isEmpty() ? "❝ " + text : null);
+        break;
+      }
+      case TdApi.PageBlockMathematicalExpression.CONSTRUCTOR:
+        appendLine(b, ((TdApi.PageBlockMathematicalExpression) block).expression);
+        break;
+      case TdApi.PageBlockThinking.CONSTRUCTOR:
+        appendLine(b, richTextToString(((TdApi.PageBlockThinking) block).text));
+        break;
+      case TdApi.PageBlockTable.CONSTRUCTOR: {
+        TdApi.PageBlockTable table = (TdApi.PageBlockTable) block;
+        appendLine(b, richTextToString(table.caption));
+        if (table.cells != null) {
+          for (TdApi.PageBlockTableCell[] row : table.cells) {
+            if (row == null) {
+              continue;
+            }
+            StringBuilder line = new StringBuilder();
+            boolean hasText = false;
+            for (int i = 0; i < row.length; i++) {
+              String cellText = row[i] != null ? richTextToString(row[i].text) : null;
+              if (i > 0) {
+                line.append(" | ");
+              }
+              if (cellText != null && !cellText.trim().isEmpty()) {
+                line.append(cellText.trim().replace("\n", " "));
+                hasText = true;
+              }
+            }
+            appendLine(b, hasText ? line.toString() : null);
+          }
+        }
+        break;
+      }
       default:
-        // Dividers, anchors, tables, maps, embeds etc. - skipped in the flat render
+        // Dividers, anchors, maps, embeds etc. - skipped in the flat render
         break;
     }
   }
@@ -2931,66 +3322,10 @@ public class TD {
   }
 
   private static void appendRichText (StringBuilder b, @Nullable TdApi.RichText richText) {
-    if (richText == null) {
-      return;
-    }
-    switch (richText.getConstructor()) {
-      case TdApi.RichTextPlain.CONSTRUCTOR:
-        b.append(((TdApi.RichTextPlain) richText).text);
-        break;
-      case TdApi.RichTextBold.CONSTRUCTOR:
-        appendRichText(b, ((TdApi.RichTextBold) richText).text);
-        break;
-      case TdApi.RichTextItalic.CONSTRUCTOR:
-        appendRichText(b, ((TdApi.RichTextItalic) richText).text);
-        break;
-      case TdApi.RichTextUnderline.CONSTRUCTOR:
-        appendRichText(b, ((TdApi.RichTextUnderline) richText).text);
-        break;
-      case TdApi.RichTextStrikethrough.CONSTRUCTOR:
-        appendRichText(b, ((TdApi.RichTextStrikethrough) richText).text);
-        break;
-      case TdApi.RichTextFixed.CONSTRUCTOR:
-        appendRichText(b, ((TdApi.RichTextFixed) richText).text);
-        break;
-      case TdApi.RichTextUrl.CONSTRUCTOR:
-        appendRichText(b, ((TdApi.RichTextUrl) richText).text);
-        break;
-      case TdApi.RichTextEmailAddress.CONSTRUCTOR:
-        appendRichText(b, ((TdApi.RichTextEmailAddress) richText).text);
-        break;
-      case TdApi.RichTextSubscript.CONSTRUCTOR:
-        appendRichText(b, ((TdApi.RichTextSubscript) richText).text);
-        break;
-      case TdApi.RichTextSuperscript.CONSTRUCTOR:
-        appendRichText(b, ((TdApi.RichTextSuperscript) richText).text);
-        break;
-      case TdApi.RichTextMarked.CONSTRUCTOR:
-        appendRichText(b, ((TdApi.RichTextMarked) richText).text);
-        break;
-      case TdApi.RichTextPhoneNumber.CONSTRUCTOR:
-        appendRichText(b, ((TdApi.RichTextPhoneNumber) richText).text);
-        break;
-      case TdApi.RichTexts.CONSTRUCTOR: {
-        TdApi.RichTexts texts = (TdApi.RichTexts) richText;
-        if (texts.texts != null) {
-          for (TdApi.RichText innerText : texts.texts) {
-            appendRichText(b, innerText);
-          }
-        }
-        break;
-      }
-      case TdApi.RichTextButton.CONSTRUCTOR: {
-        // Flat previews (chat list, notifications) show the button's label
-        TdApi.InlineButton button = ((TdApi.RichTextButton) richText).button;
-        if (button != null) {
-          appendRichText(b, button.text);
-        }
-        break;
-      }
-      default:
-        // Icons, anchors, references, math etc. - no plain-text representation
-        break;
+    if (richText != null) {
+      // One walker for every rich text type: the hand-written list that was
+      // here skipped spoilers, mentions, hashtags, commands and custom emoji
+      b.append(new RichTextFormatter(true).append(richText).plainText());
     }
   }
 

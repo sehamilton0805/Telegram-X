@@ -567,13 +567,18 @@ public abstract class PageBlock {
       case TdApi.PageBlockBlockQuote.CONSTRUCTOR: {
         TdApi.PageBlockBlockQuote quoteRaw = (TdApi.PageBlockBlockQuote) block;
         context.openQuotes.add(quoteRaw);
+        // Blocks without a view of their own (a button row, a file) add
+        // nothing: the credit then has no block of this quote to merge with
+        final int quoteStart = out.size();
         for (int i = 0; i < quoteRaw.blocks.length; i++) {
           TdApi.PageBlock quoteBlock = quoteRaw.blocks[i];
           parse(parent, out, context, quoteBlock, openParameters);
         }
         if (!Td.isEmpty(quoteRaw.credit)) {
           PageBlockRichText credit = new PageBlockRichText(parent, quoteRaw, context.quoteLevel(), openParameters);
-          credit.mergeWith(out.get(out.size() - 1));
+          if (out.size() > quoteStart) {
+            credit.mergeWith(out.get(out.size() - 1));
+          }
           context.process(credit, out);
         }
         context.openQuotes.remove(context.openQuotes.size() - 1);
@@ -814,6 +819,38 @@ public abstract class PageBlock {
 
         context.isPost = false;
 
+        break;
+      }
+
+      // Blocks that came with rich messages. The page engine has no views of
+      // their own for them: each is shown through the closest block it knows
+      case TdApi.PageBlockSectionHeading.CONSTRUCTOR: {
+        TdApi.PageBlockSectionHeading heading = (TdApi.PageBlockSectionHeading) block;
+        if (heading.size <= 2) {
+          parse(parent, out, context, new TdApi.PageBlockHeader(heading.text), openParameters);
+        } else {
+          parse(parent, out, context, new TdApi.PageBlockSubheader(heading.text), openParameters);
+        }
+        break;
+      }
+      case TdApi.PageBlockExpandableBlockQuote.CONSTRUCTOR: {
+        TdApi.PageBlockExpandableBlockQuote quoteRaw = (TdApi.PageBlockExpandableBlockQuote) block;
+        parse(parent, out, context, new TdApi.PageBlockBlockQuote(new TdApi.PageBlock[] {new TdApi.PageBlockParagraph(quoteRaw.text)}, quoteRaw.credit), openParameters);
+        break;
+      }
+      case TdApi.PageBlockMathematicalExpression.CONSTRUCTOR: {
+        TdApi.PageBlockMathematicalExpression math = (TdApi.PageBlockMathematicalExpression) block;
+        parse(parent, out, context, new TdApi.PageBlockPreformatted(new TdApi.RichTextPlain(math.expression != null ? math.expression : ""), ""), openParameters);
+        break;
+      }
+      case TdApi.PageBlockThinking.CONSTRUCTOR: {
+        parse(parent, out, context, new TdApi.PageBlockParagraph(((TdApi.PageBlockThinking) block).text), openParameters);
+        break;
+      }
+      case TdApi.PageBlockButtonRow.CONSTRUCTOR:
+      case TdApi.PageBlockDocument.CONSTRUCTOR:
+      case TdApi.PageBlockUnsupported.CONSTRUCTOR: {
+        // Nothing to show on a page: buttons live in the message itself
         break;
       }
 
