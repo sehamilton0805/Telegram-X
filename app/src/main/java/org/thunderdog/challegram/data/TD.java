@@ -3069,12 +3069,13 @@ public class TD {
         break;
       }
       case TdApi.PageBlockMathematicalExpression.CONSTRUCTOR: {
-        // No formula renderer: the source of the expression, as code
+        // No formula renderer: the source of the expression in a monospace
+        // face. Not a code block: the engine would draw that as a card titled "Code"
         String expression = ((TdApi.PageBlockMathematicalExpression) block).expression;
         if (expression != null && !expression.trim().isEmpty()) {
           int start = formatter.startBlock();
           formatter.appendPlain(expression);
-          formatter.mark(start, new TdApi.TextEntityTypePre());
+          formatter.mark(start, new TdApi.TextEntityTypeCode());
         }
         break;
       }
