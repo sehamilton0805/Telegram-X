@@ -186,12 +186,13 @@ jobs:
           AAPT2=$(find "$ANDROID_SDK_ROOT/build-tools" -name aapt2 -type f | sort -V | tail -1)
           [[ -n "$AAPT2" ]] || { echo "::error::aapt2 not found under $ANDROID_SDK_ROOT/build-tools"; exit 1; }
           BADGING=$("$AAPT2" dump badging "$APK")
-          grep -E "^(package|sdkVersion|maxSdkVersion|targetSdkVersion|native-code)" <<< "$BADGING"
+          # aapt2 печатает минимальный SDK строкой minSdkVersion:'N' (старый aapt - sdkVersion:'N')
+          grep -E "^(package|sdkVersion|minSdkVersion|maxSdkVersion|targetSdkVersion|native-code)" <<< "$BADGING"
           grep -q "^package: name='dev.redgreen.tgx' " <<< "$BADGING" || { echo "::error::applicationId of the APK is not dev.redgreen.tgx"; exit 1; }
           VERSION_CODE=$(sed -n "s/^package: .* versionCode='\([0-9]*\)'.*/\1/p" <<< "$BADGING")
           BUILD_VERSION=$((1800 + ${{ github.run_number }}))
           [[ -n "$VERSION_CODE" && "$VERSION_CODE" -ge $((BUILD_VERSION * 1000)) && "$VERSION_CODE" -lt $(((BUILD_VERSION + 1) * 1000)) ]] || { echo "::error::versionCode '$VERSION_CODE' is outside the range of build $BUILD_VERSION"; exit 1; }
-          grep -q "^sdkVersion:'24'" <<< "$BADGING" || { echo "::error::minSdk of the APK is not 24"; exit 1; }
+          grep -Eq "^(minSdkVersion|sdkVersion):'24'" <<< "$BADGING" || { echo "::error::minSdk of the APK is not 24"; exit 1; }
           if grep -q "^maxSdkVersion" <<< "$BADGING"; then echo "::error::the APK declares maxSdkVersion"; exit 1; fi
           # Нативные библиотеки: только arm64-v8a; патченная libtdjni.so и всё, без чего она не загрузится
           # (общий STL и OpenSSL сабмодуля)
