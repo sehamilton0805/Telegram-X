@@ -48,8 +48,6 @@ import org.thunderdog.challegram.util.text.TextEntity;
 import org.thunderdog.challegram.util.text.TextWrapper;
 
 import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.Set;
 
 import me.vkryl.android.animator.FactorAnimator;
 import me.vkryl.core.MathUtils;
