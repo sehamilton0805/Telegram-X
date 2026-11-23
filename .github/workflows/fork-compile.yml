@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   compile:
-    name: Compile latestRelease sources
+    name: Compile nopRelease sources
     runs-on: ubuntu-22.04
     timeout-minutes: 120
     permissions:
@@ -82,7 +82,8 @@ jobs:
           echo "app.experimental=true" >> local.properties
 
       - name: Compile Java and Kotlin
-        run: ./gradlew :app:compileLatestReleaseJavaWithJavac -Pabi=arm64 --stacktrace --no-daemon
+        # Вариант nop: им форк собирает свой единственный APK (Android 7.0 и новее), см. fork-apk.yml
+        run: ./gradlew :app:compileNopReleaseJavaWithJavac -Pabi=arm64 --stacktrace --no-daemon
 
       # И после упавшего прогона: собранные нативные библиотеки уже лежат в кэше сборки Gradle
       - name: Gradle cache save

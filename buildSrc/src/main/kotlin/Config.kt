@@ -284,8 +284,12 @@ object Sdk {
     Pair(NOUGAT_OREO_PIE, SdkVariant(
       flavor = "nop",
       minSdk = 24,
-      maxSdk = 28,
-      displayName = "nougatOreoPie"
+      // Fork: no upper limit and no flavor suffix in the version name. Upstream splits the published APK
+      // by Android version (nop 7-9, qrs 10-12, latest 13+); the fork ships this one flavor to every
+      // Android 7.0+, as its single APK did before the merge (latest was minSdk 24 then). The code of nop
+      // runs on newer Android as it is: its only flavor-specific source, FrameworkFingerprint, steps
+      // aside there
+      displayName = null
     )),
     Pair(Q_R_S, SdkVariant(
       flavor = "qrs",

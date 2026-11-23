@@ -21,6 +21,12 @@ concurrency:
   group: tdlib-build
   cancel-in-progress: false
 
+env:
+  # Уровень API, под который собирается библиотека: минимальный SDK варианта сборки приложения. Форк раздаёт
+  # один APK варианта nop (Android 7.0 и новее), его minSdk 24. По уровню API выбирается и OpenSSL сабмодуля,
+  # и каталог, куда Fork APK кладёт библиотеку; в пин он пишется строкой api=
+  TDLIB_API: '24'
+
 jobs:
   build:
     name: Build libtdjni arm64-v8a
@@ -38,10 +44,9 @@ jobs:
         run: |
           set -euo pipefail
           git submodule update --init --depth 1 tdlib
-          # OpenSSL сабмодуля лежит по NDK и минимальному SDK варианта сборки приложения:
-          # вариант latest собирается основным NDK под android-33
+          # OpenSSL сабмодуля лежит по NDK и минимальному SDK варианта сборки приложения
           NDK=$(sed -n 's/^version.ndk_primary=//p' version.properties | tr -d '\r')
-          OPENSSL_LIB="openssl/$NDK/android-33/arm64-v8a/lib"
+          OPENSSL_LIB="openssl/$NDK/android-$TDLIB_API/arm64-v8a/lib"
           git -C tdlib lfs pull --include="$OPENSSL_LIB/*"
           ls -la "tdlib/$OPENSSL_LIB"
           # LFS-указатель тоже непустой файл: проверяем магию ELF, иначе линковка упадёт через 40 минут
@@ -108,9 +113,11 @@ jobs:
           grep -q 'for ABI in \$ABIS' td/example/android/build-tdlib.sh || { echo "::error::build-tdlib-impl.sh no longer takes the ABI list as an argument"; exit 1; }
           cd td/example/android
           # Аргументы: SDK, NDK, каталог OpenSSL (внутри него <NDK>/android-<API>/<ABI>), STL, интерфейс,
-          # уровень API, список ABI, пакет SDK для android.jar
-          ./build-tdlib.sh "$ANDROID_SDK_ROOT" "$NDK" "$GITHUB_WORKSPACE/tdlib/openssl" c++_static Java 33 "arm64-v8a" android-34
-          ls -la tdlib/libs/arm64-v8a build-33-arm64-v8a-Java/libtdjni.so*
+          # уровень API, список ABI, пакет SDK для android.jar. STL общий (c++_shared), как у готовых библиотек
+          # сабмодуля (tdlib/source/build-tdlib.sh): приложение после слияния тоже собирается с c++_shared
+          # и кладёт libc++_shared.so в APK
+          ./build-tdlib.sh "$ANDROID_SDK_ROOT" "$NDK" "$GITHUB_WORKSPACE/tdlib/openssl" c++_shared Java "$TDLIB_API" "arm64-v8a" android-34
+          ls -la tdlib/libs/arm64-v8a "build-$TDLIB_API-arm64-v8a-Java"/libtdjni.so*
           ccache --show-stats
 
       - name: ccache save
@@ -128,8 +135,10 @@ jobs:
           # build-tdlib-impl.sh удаляет .debug из tdlib/libs после упаковки в tdlib-debug.zip;
           # нестрипнутая копия остаётся в каталоге сборки (POST_BUILD в example/android/CMakeLists.txt)
           cp td/example/android/tdlib/libs/arm64-v8a/libtdjni.so out/libtdjni-arm64-v8a.so
-          cp td/example/android/build-33-arm64-v8a-Java/libtdjni.so.debug out/libtdjni-arm64-v8a.so.debug
+          cp "td/example/android/build-$TDLIB_API-arm64-v8a-Java/libtdjni.so.debug" out/libtdjni-arm64-v8a.so.debug
           test "$(grep -c disable_online_notification_delay out/libtdjni-arm64-v8a.so)" -ge 1
+          # Общий STL: библиотека должна ссылаться на libc++_shared.so, который лежит в APK
+          grep -a -q 'libc++_shared[.]so' out/libtdjni-arm64-v8a.so || { echo "::error::libtdjni.so is not linked against libc++_shared.so"; exit 1; }
           grep -a -o -E 'lib(crypto|ssl)x?\.so' out/libtdjni-arm64-v8a.so | sort -u
           cp tdlib-patches/*.patch out/
           (cd out && sha256sum * > SHA256SUMS && cat SHA256SUMS)
@@ -156,12 +165,13 @@ jobs:
           # Без --target: тег релиза встаёт на ветку по умолчанию, как у релизов build-NN. Тег на коммит рабочей
           # ветки GitHub токену воркфлоу поставить не дал (HTTP 403, прогон 23.11), а библиотека от коммита тега
           # не зависит: из какого коммита взяты патчи, записано в описании релиза
-          gh release create "$TAG" --prerelease --title "TDLib ${TD_COMMIT:0:7} patched (arm64)" \
-            --notes "tdlib/td@${TD_COMMIT} + tdlib-patches/* of ${GITHUB_REF_NAME}@${GITHUB_SHA:0:7}. arm64-v8a only, android-33, c++_static, RelWithDebInfo (stripped + .debug)." out/*
+          gh release create "$TAG" --prerelease --title "TDLib ${TD_COMMIT:0:7} patched (arm64, android-$TDLIB_API)" \
+            --notes "tdlib/td@${TD_COMMIT} + tdlib-patches/* of ${GITHUB_REF_NAME}@${GITHUB_SHA:0:7}. arm64-v8a only, android-$TDLIB_API, c++_shared, RelWithDebInfo (stripped + .debug)." out/*
           {
             echo "td_commit=$TD_COMMIT"
             echo "release_tag=$TAG"
             echo "asset=libtdjni-arm64-v8a.so"
             echo "sha256=$SHA256"
+            echo "api=$TDLIB_API"
           } | tee pinned.properties
           { echo '```'; cat pinned.properties; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
