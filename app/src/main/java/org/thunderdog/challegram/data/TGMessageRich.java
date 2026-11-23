@@ -1869,15 +1869,18 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
         final Card card = part.card;
         // A part on a card keeps its place on the card when the card itself had to move left
         textPart.layoutIndent = card != null
-          ? Math.min(card.indent, maxIndent) + Math.max(0, textPart.indent - card.indent)
+          ? Math.min(Math.min(card.indent, maxIndent) + Math.max(0, textPart.indent - card.indent), maxIndent + card.paddingLeft())
           : Math.min(textPart.indent, maxIndent);
         int textWidth = maxWidth - textPart.layoutIndent - textPart.rightInset;
         if (card != null && card.kind == Card.KIND_PULL_QUOTE) {
           // A pull quote stays narrower than the message
           textWidth = Math.min(textWidth, (int) (maxWidth * PULL_QUOTE_MAX_WIDTH) - card.paddingLeft() - card.paddingRight());
         }
-        textPart.layoutWidth = Math.max(Screen.dp(24f), textWidth);
-        final Text text = textPart.wrapper.prepare(textPart.layoutWidth);
+        final int requestedWidth = Math.max(Screen.dp(24f), textWidth);
+        final Text text = textPart.wrapper.prepare(requestedWidth);
+        // The width the text is really laid out at: a line that fits is taken over
+        // from the other orientation of the screen together with its own width
+        textPart.layoutWidth = text != null ? text.getMaxWidth() : requestedWidth;
         part.height = textPart.wrapper.getHeight();
         if (textPart.foldable && card != null) {
           // A folded quote shows its first lines and no more
