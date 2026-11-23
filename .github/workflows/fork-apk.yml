@@ -236,17 +236,13 @@ jobs:
           TAG="build-${{ github.run_number }}"
           SHORT_SHA=$(git rev-parse --short "${{ github.sha }}")
           cp "$APK" "Telegram-X-RG-$TAG-$SHORT_SHA.apk"
-          if [[ "${{ github.ref_name }}" == "fork" ]]; then
-            gh release create "$TAG" "Telegram-X-RG-$TAG-$SHORT_SHA.apk" \
-              --title "Telegram X RG $TAG ($SHORT_SHA)" \
-              --notes "Automated fork build. Commit: ${{ github.sha }}" \
-              --latest
-          else
-            # Сборка с рабочей ветки: пре-релиз для проверки, «latest» остаётся за веткой fork.
-            # Без --target, как и у релизов ветки fork: тег на коммит рабочей ветки GitHub токену воркфлоу
-            # может не дать поставить (HTTP 403 в tdlib-build.yml 23.11); ветка и коммит записаны в названии
-            gh release create "$TAG" "Telegram-X-RG-$TAG-$SHORT_SHA.apk" \
-              --title "Telegram X RG $TAG pre-release (${{ github.ref_name }}, $SHORT_SHA)" \
-              --notes "Тестовая сборка ветки ${{ github.ref_name }}, для проверки перед выпуском. Игрокам: ставьте сборку с пометкой Latest. Commit: ${{ github.sha }}" \
-              --prerelease --latest=false
+          if [[ "${{ github.ref_name }}" != "fork" ]]; then
+            # Пре-релизы не выпускаются (владелец 23.11: в списке релизов GitHub они стоят в самом конце, их не
+            # найти). Сборка рабочей ветки остаётся артефактом этого прогона, релиз получает только ветка fork
+            echo "::notice::branch ${{ github.ref_name }}: no release, the APK is the artifact of this run"
+            exit 0
           fi
+          gh release create "$TAG" "Telegram-X-RG-$TAG-$SHORT_SHA.apk" \
+            --title "Telegram X RG $TAG ($SHORT_SHA)" \
+            --notes "Automated fork build. Commit: ${{ github.sha }}" \
+            --latest
