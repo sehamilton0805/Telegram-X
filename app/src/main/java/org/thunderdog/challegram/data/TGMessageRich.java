@@ -180,6 +180,11 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
     boolean centered;
     // The text of a quote that folds: only its first lines show while it is folded
     boolean foldable;
+    // The width the text was last laid out at
+    int layoutWidth;
+    // How far left of the text its marker stands, beyond the usual gap: the
+    // padding of the card, when the item of a list starts with a quote
+    int markerShift;
 
     TextPart (TextWrapper wrapper) {
       this.wrapper = wrapper;
@@ -253,6 +258,7 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
     @Nullable Card card;
     int rightInset;
     boolean centered;
+    int markerShift;
 
     BlockContext (int indent) {
       this.indent = indent;
@@ -1003,8 +1009,10 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
     part.centered = (textFlags & Text.FLAG_ALIGN_CENTER) != 0;
     part.marker = context.marker;
     part.checkBox = context.checkBox;
+    part.markerShift = context.markerShift;
     context.marker = null;
     context.checkBox = CHECKBOX_NONE;
+    context.markerShift = 0;
     addPart(part);
     return part;
   }
@@ -1210,10 +1218,27 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
     // The gap above the card is the gap above its first part
     inner.nextSpacing = outer.nextSpacing;
     inner.followSpacing = Screen.dp(PART_SPACING_TIGHT_DP);
+    // The marker or the checkbox of a list item that starts with a quote goes
+    // to the first text on the card and stands left of the card
+    inner.marker = outer.marker;
+    inner.checkBox = outer.checkBox;
+    if (outer.gutter > 0) {
+      inner.gutter = outer.gutter + card.paddingLeft();
+      inner.markerShift = card.paddingLeft();
+    }
+    outer.marker = null;
+    outer.checkBox = CHECKBOX_NONE;
     return inner;
   }
 
-  private void finishCard (BlockContext outer, Card card) {
+  private void finishCard (BlockContext outer, BlockContext inner, Card card) {
+    if (inner.marker != null || inner.checkBox != CHECKBOX_NONE) {
+      // No text on the card took the marker: it goes back to where it came from
+      outer.marker = inner.marker;
+      outer.checkBox = inner.checkBox;
+      inner.marker = null;
+      inner.checkBox = CHECKBOX_NONE;
+    }
     if (card.firstPart != -1) {
       cards.add(card);
       outer.nextSpacing = outer.followSpacing;
@@ -1230,7 +1255,11 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
     if (text.text.trim().isEmpty()) {
       return;
     }
-    blockContext.nextSpacing = Screen.dp(QUOTE_CREDIT_SPACING_DP);
+    final Card card = blockContext.card;
+    if (card != null && card.firstPart != -1) {
+      // Under the text of the quote; a credit that stands alone keeps the gap above the card
+      blockContext.nextSpacing = Screen.dp(QUOTE_CREDIT_SPACING_DP);
+    }
     addTextPart(text, getTextStyleProvider(), new AccentColorSet(getTextColorSet()), Text.FLAG_ALL_BOLD);
   }
 
@@ -1240,7 +1269,8 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
   private void segmentQuote (TdApi.PageBlockBlockQuote quote) {
     final BlockContext outer = blockContext;
     final Card card = new Card(Card.KIND_QUOTE, outer.indent);
-    blockContext = cardContext(outer, card);
+    final BlockContext inner = cardContext(outer, card);
+    blockContext = inner;
     ArrayList<TdApi.PageBlock> innerRun = new ArrayList<>();
     if (quote.blocks != null) {
       for (TdApi.PageBlock innerBlock : quote.blocks) {
@@ -1250,11 +1280,9 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
         }
       }
     }
-    if (card.firstPart != -1) {
-      addQuoteCredit(quote.credit);
-    }
+    addQuoteCredit(quote.credit);
     blockContext = outer;
-    finishCard(outer, card);
+    finishCard(outer, inner, card);
   }
 
   // An expandable quote: the same card, folded to its first lines until the
@@ -1268,12 +1296,13 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
     final Card card = new Card(Card.KIND_QUOTE, outer.indent);
     card.foldable = quote;
     card.collapsed = !unfoldedQuotes.contains(quote);
-    blockContext = cardContext(outer, card);
+    final BlockContext inner = cardContext(outer, card);
+    blockContext = inner;
     TextPart textPart = addTextPart(text);
     textPart.foldable = true;
     addQuoteCredit(quote.credit);
     blockContext = outer;
-    finishCard(outer, card);
+    finishCard(outer, inner, card);
   }
 
   // A pull quote: a card in the middle of the message, as wide as its text,
@@ -1288,11 +1317,12 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
     }
     final BlockContext outer = blockContext;
     final Card card = new Card(Card.KIND_PULL_QUOTE, outer.indent);
-    blockContext = cardContext(outer, card);
+    final BlockContext inner = cardContext(outer, card);
+    blockContext = inner;
     addTextPart(text);
     addQuoteCredit(quote.credit);
     blockContext = outer;
-    finishCard(outer, card);
+    finishCard(outer, inner, card);
   }
 
   // There is no formula renderer here: the source of the expression goes on
@@ -1465,6 +1495,12 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
         break;
       }
       case TdApi.PageBlockPreformatted.CONSTRUCTOR: {
+        TdApi.RichText codeText = richTextOf(block);
+        if (codeText != null && containsButton(codeText)) {
+          // Buttons inside the text: the path of a text block keeps them
+          segmentTextBlock(block, textRun);
+          break;
+        }
         // A code block is a part of its own: the text engine draws its card
         // (header, copy button, highlighting), the bubble stretches the card
         // to the width of the message
@@ -1831,13 +1867,17 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
       if (part instanceof TextPart) {
         TextPart textPart = (TextPart) part;
         final Card card = part.card;
-        textPart.layoutIndent = Math.min(textPart.indent, maxIndent);
+        // A part on a card keeps its place on the card when the card itself had to move left
+        textPart.layoutIndent = card != null
+          ? Math.min(card.indent, maxIndent) + Math.max(0, textPart.indent - card.indent)
+          : Math.min(textPart.indent, maxIndent);
         int textWidth = maxWidth - textPart.layoutIndent - textPart.rightInset;
         if (card != null && card.kind == Card.KIND_PULL_QUOTE) {
           // A pull quote stays narrower than the message
           textWidth = Math.min(textWidth, (int) (maxWidth * PULL_QUOTE_MAX_WIDTH) - card.paddingLeft() - card.paddingRight());
         }
-        final Text text = textPart.wrapper.prepare(Math.max(Screen.dp(24f), textWidth));
+        textPart.layoutWidth = Math.max(Screen.dp(24f), textWidth);
+        final Text text = textPart.wrapper.prepare(textPart.layoutWidth);
         part.height = textPart.wrapper.getHeight();
         if (textPart.foldable && card != null) {
           // A folded quote shows its first lines and no more
@@ -2057,13 +2097,15 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
         int textLeft = startX + textPart.layoutIndent;
         int textRight = startX + maxWidth;
         if (textPart.centered) {
-          // The lines are centred between these two: on the card, or in the message
-          if (card != null) {
-            textLeft = startX + card.left + card.paddingLeft();
-            textRight = startX + card.right - card.paddingRight();
-          } else {
-            textRight = startX + Math.max(layoutContentWidth, textPart.layoutIndent);
-          }
+          // The lines go to the middle of the card, or of the message. The text
+          // engine centres what it draws between the two edges it is given, but
+          // looks for the word under the finger around the middle of the width
+          // the text was laid out at: the box it gets is exactly that wide, so
+          // that the two middles are the same point
+          final int boxLeft = card != null ? card.left + card.paddingLeft() : textPart.layoutIndent;
+          final int boxRight = card != null ? card.right - card.paddingRight() : Math.max(layoutContentWidth, textPart.layoutIndent);
+          textLeft = startX + (boxLeft + boxRight) / 2 - textPart.layoutWidth / 2;
+          textRight = textLeft + textPart.layoutWidth;
         }
         // The cards of the code blocks reach the edge of the message, or of the card they are on
         textPart.wrapper.setCodeBlockEnd(startX + (card != null ? card.right - textPart.rightInset : layoutContentWidth));
@@ -2168,7 +2210,7 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
       rectF.set(centerX - boxRadius, centerY - boxRadius, centerX + boxRadius, centerY + boxRadius);
       c.drawRoundRect(rectF, cornerRadius, cornerRadius, Paints.getProgressPaint(getDecentColor(), Screen.dp(1f)));
     } else if (part.marker != null) {
-      part.marker.draw(c, Math.max(startX, startX + part.layoutIndent - Screen.dp(LIST_MARKER_GAP_DP) - part.marker.getWidth()), top);
+      part.marker.draw(c, Math.max(startX, startX + part.layoutIndent - part.markerShift - Screen.dp(LIST_MARKER_GAP_DP) - part.marker.getWidth()), top);
     }
   }
 
