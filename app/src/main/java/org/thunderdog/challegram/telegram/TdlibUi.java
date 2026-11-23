@@ -117,6 +117,7 @@ import org.thunderdog.challegram.ui.ProfileController;
 import org.thunderdog.challegram.ui.RequestController;
 import org.thunderdog.challegram.ui.SettingHolder;
 import org.thunderdog.challegram.ui.Settings2FAController;
+import org.thunderdog.challegram.ui.SettingsCacheController;
 import org.thunderdog.challegram.ui.SettingsController;
 import org.thunderdog.challegram.ui.SettingsDataController;
 import org.thunderdog.challegram.ui.SettingsFoldersController;
@@ -595,6 +596,32 @@ public class TdlibUi extends Handler {
 
   public void showDeleteOptions (ViewController<?> context, MessageWithProperties message) {
     showDeleteOptions(context, new MessageWithProperties[] {message}, null);
+  }
+
+  public void showClearCallHistoryOptions (ViewController<?> context) {
+    tdlib.send(new TdApi.SearchCallMessages(null, 1, false), (result, error) -> {
+      if (error != null || result.messages.length == 0) {
+        return;
+      }
+      context.runOnUiThreadOptional(() ->
+        context.showSettings(new SettingsWrapBuilder(R.id.btn_delete)
+          .addHeaderItem(Lang.getMarkdownString(context, R.string.DeleteCallHistoryConfirm))
+          .setRawItems(new ListItem[] {
+            new ListItem(ListItem.TYPE_CHECKBOX_OPTION, R.id.btn_deleteAll, 0, R.string.DeleteCallHistoryForEveryone, false)
+          })
+          .setIntDelegate((id, result2) -> {
+            if (id == R.id.btn_delete) {
+              boolean revoke = result2.get(R.id.btn_deleteAll) != 0;
+              tdlib.clearCallsHistory(revoke, () ->
+                UI.showToast(R.string.Done, Toast.LENGTH_SHORT)
+              );
+            }
+          })
+          .setSaveStr(R.string.Delete)
+          .setSaveColorId(ColorId.textNegative)
+          .setAllowResize(false))
+      );
+    });
   }
 
   public void showDeleteOptions (final ViewController<?> context, final MessageWithProperties[] messages, final @Nullable Runnable after) {
@@ -1713,6 +1740,7 @@ public class TdlibUi extends Handler {
   private static final int CHAT_OPTION_SCHEDULED_MESSAGES = 1 << 6;
   private static final int CHAT_OPTION_OPEN_PROFILE_IF_DUPLICATE = 1 << 7;
   private static final int CHAT_OPTION_OPEN_DIRECT_MESSAGES_CHAT = 1 << 8;
+  private static final int CHAT_OPTION_START_CALL = 1 << 9;
 
   public static class ChatOpenParameters {
     public int options;
@@ -1867,6 +1895,11 @@ public class TdlibUi extends Handler {
 
     public ChatOpenParameters openDirectMessagesChat () {
       this.options |= CHAT_OPTION_OPEN_DIRECT_MESSAGES_CHAT;
+      return this;
+    }
+
+    public ChatOpenParameters startCall () {
+      this.options |= CHAT_OPTION_START_CALL;
       return this;
     }
 
@@ -2288,6 +2321,7 @@ public class TdlibUi extends Handler {
       .referrer(referrer)
       .voiceChatInvitation(voiceChatInvitation)
       .fillDraft(forceDraft)
+      .startCall(BitwiseUtils.hasFlag(options, CHAT_OPTION_START_CALL))
     );
 
     View view = controller.getValue();
@@ -3594,7 +3628,7 @@ public class TdlibUi extends Handler {
       }
       case TdApi.InternalLinkTypeProxy.CONSTRUCTOR: {
         TdApi.Proxy proxy = ((TdApi.InternalLinkTypeProxy) linkType).proxy;
-        if (proxy != null) {
+        if (isSupportedProxy(proxy)) {
           openProxyAlert(context, proxy);
         } else {
           showLinkTooltip(tdlib, R.drawable.baseline_warning_24, Lang.getString(R.string.ProxyLinkUnsupported), openParameters);
@@ -3763,7 +3797,7 @@ public class TdlibUi extends Handler {
             case TdApi.SettingsSectionDevices.CONSTRUCTOR: {
               SettingsSessionsController sessions = new SettingsSessionsController(context.context(), context.tdlib());
               SettingsWebsitesController websites = new SettingsWebsitesController(context.context(), context.tdlib());
-              result = new SimpleViewPagerController(context.context(), context.tdlib(), new ViewController<?>[] {sessions, websites}, new String[] {Lang.getString(R.string.Devices).toUpperCase(), Lang.getString(R.string.Websites).toUpperCase()}, false);
+              result = new SimpleViewPagerController(context.context(), context.tdlib(), new ViewController<?>[] {sessions, websites}, new String[] {Lang.uppercase(Lang.getString(R.string.Devices)), Lang.getString(R.string.Websites)}, false);
               break;
             }
             case TdApi.SettingsSectionLanguage.CONSTRUCTOR: {
@@ -4038,7 +4072,14 @@ public class TdlibUi extends Handler {
               break;
             }
             case TdApi.SettingsSectionDataAndStorage.CONSTRUCTOR: {
-              result = new SettingsDataController(context.context(), context.tdlib());
+              // region @MadeByLLM("gpt-6", id = "storage-usage-settings-link")
+              String subsection = ((TdApi.SettingsSectionDataAndStorage) section).subsection;
+              if (subsection != null && (subsection.equals("storage") || subsection.startsWith("storage/"))) {
+                result = new SettingsCacheController(context.context(), context.tdlib());
+              } else {
+                result = new SettingsDataController(context.context(), context.tdlib());
+              }
+              // endregion
               break;
             }
             case TdApi.SettingsSectionQrCode.CONSTRUCTOR:
@@ -4207,7 +4248,9 @@ public class TdlibUi extends Handler {
       case TdApi.InternalLinkTypeSavedMessages.CONSTRUCTOR:
       case TdApi.InternalLinkTypeSearch.CONSTRUCTOR:
       case TdApi.InternalLinkTypeStarPurchase.CONSTRUCTOR:
-      case TdApi.InternalLinkTypeTextCompositionStyle.CONSTRUCTOR: {
+      case TdApi.InternalLinkTypeTextCompositionStyle.CONSTRUCTOR:
+      case TdApi.InternalLinkTypeTonConnect.CONSTRUCTOR:
+      case TdApi.InternalLinkTypeTonWalletTransfer.CONSTRUCTOR: {
         unsupported.run();
         break;
       }
@@ -4327,7 +4370,7 @@ public class TdlibUi extends Handler {
         return; // async
       }
       default: {
-        Td.assertInternalLinkType_44babac4();
+        Td.assertInternalLinkType_c232a5d5();
         throw Td.unsupported(linkType);
       }
     }
@@ -4395,7 +4438,7 @@ public class TdlibUi extends Handler {
     StringBuilder desc = new StringBuilder("<b>");
     desc.append(Lang.getString(R.string.UseProxyServer));
     desc.append(":</b> ");
-    desc.append(server);
+    desc.append(TextUtils.htmlEncode(server));
     desc.append("<br/><b>");
     desc.append(Lang.getString(R.string.UseProxyPort));
     desc.append(":</b> ");
@@ -4439,11 +4482,16 @@ public class TdlibUi extends Handler {
     });
   }
 
+  private static boolean isSupportedProxy (@Nullable TdApi.Proxy proxy) {
+    // Web proxies need a relay page in a hidden web view, which the app doesn't have
+    return proxy != null && proxy.type.getConstructor() != TdApi.ProxyTypeWeb.CONSTRUCTOR;
+  }
+
   public void openProxyAlert (TdlibDelegate context, @Nullable TdApi.Proxy proxy) {
     ViewController<?> c = context.context().navigation().getCurrentStackItem();
     if (c == null)
       return;
-    if (proxy == null) {
+    if (!isSupportedProxy(proxy)) {
       // unsupported proxy
       return;
     }
@@ -4609,6 +4657,16 @@ public class TdlibUi extends Handler {
     c.setArguments(args);
     context.context().navigation().navigateTo(c);
     return true;
+  }
+
+  // Calls
+
+  public void openCallSettings (ViewController<?> context) {
+    SettingsNotificationController c = new SettingsNotificationController(context.context(), tdlib);
+    c.setArguments(new SettingsNotificationController.Args(
+      SettingsNotificationController.Section.CALLS, 0
+    ));
+    context.navigateTo(c);
   }
 
   // Proxy
@@ -7274,6 +7332,10 @@ public class TdlibUi extends Handler {
           break;
       }
     });
+  }
+
+  public void openTonAddress (TdlibDelegate context, String tonAddress) {
+    // TODO
   }
 
   public List<HapticMenuHelper.MenuItem> fillDefaultHapticMenu (long chatId, boolean isEdit, boolean canToggleMarkdown, boolean canSendWithoutSound) {

@@ -66,6 +66,7 @@
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_PHONE_CALL" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
   <uses-permission android:name="android.permission.MANAGE_OWN_CALLS" />
@@ -84,12 +85,7 @@
   <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
   <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
   <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
-
-  <uses-permission android:name="com.google.android.providers.gsf.permission.READ_GSERVICES" />
-  <uses-permission android:name="com.google.android.c2dm.permission.RECEIVE" />
-
-  <uses-permission android:name="${applicationId}.permission.MAPS_RECEIVE" />
-  <uses-permission android:name="${applicationId}.permission.C2D_MESSAGE" />
+  <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
 
   <uses-permission android:name="com.sec.android.provider.badge.permission.READ" />
   <uses-permission android:name="com.sec.android.provider.badge.permission.WRITE" />
@@ -129,6 +125,7 @@
     android:name="org.thunderdog.challegram.BaseApplication"
     android:allowBackup="false"
     android:fullBackupContent="false"
+    android:dataExtractionRules="@xml/data_extraction_rules"
     android:hardwareAccelerated="true"
     android:icon="@mipmap/app_launcher"
     android:label="@string/AppName"
@@ -168,7 +165,7 @@
       android:stopWithTask="false" />
 
     <service
-      android:name=".service.ForegroundService"
+      android:name=".service.FetchNotificationService"
       android:enabled="true"
       android:exported="false"
       android:foregroundServiceType="specialUse"
@@ -188,6 +185,13 @@
         android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
         android:value="Telegram X is a messaging app. At the user's explicit request (an opt-in toggle in notification settings) the app keeps a persistent connection to Telegram so that new message notifications arrive instantly and reliably. Other foreground service types do not fit this use case, or have time limits on Android 15." />
     </service>
+
+    <service
+      android:name=".service.SyncContactsService"
+      android:enabled="true"
+      android:exported="false"
+      android:foregroundServiceType="dataSync"
+      android:stopWithTask="false" />
 
     <service
       android:name=".service.BootListenerService"
@@ -230,7 +234,8 @@
 
     <service
       android:name="org.thunderdog.challegram.sync.SyncService"
-      android:exported="true">
+      android:exported="true"
+      tools:ignore="ExportedService">
       <intent-filter>
         <action android:name="android.content.SyncAdapter" />
       </intent-filter>
@@ -285,8 +290,8 @@
       android:name=".receiver.TGAutoMessageReceiver"
       android:exported="false">
       <intent-filter>
-        <action android:name="org.thunderdog.challegram.ACTION_MESSAGE_REPLY" />
-        <action android:name="org.thunderdog.challegram.ACTION_MESSAGE_HEARD" />
+        <action android:name="${applicationId}.ACTION_MESSAGE_REPLY" />
+        <action android:name="${applicationId}.ACTION_MESSAGE_HEARD" />
       </intent-filter>
     </receiver>
     <receiver
@@ -313,9 +318,9 @@
       android:enabled="true"
       android:exported="false">
       <intent-filter>
-        <action android:name="org.thunderdog.challegram.END_CALL" />
-        <action android:name="org.thunderdog.challegram.DECLINE_CALL" />
-        <action android:name="org.thunderdog.challegram.ANSWER_CALL" />
+        <action android:name="${applicationId}.END_CALL" />
+        <action android:name="${applicationId}.DECLINE_CALL" />
+        <action android:name="${applicationId}.ANSWER_CALL" />
       </intent-filter>
     </receiver>
 
@@ -325,11 +330,11 @@
       android:exported="false"
       android:enabled="true">
       <intent-filter>
-        <action android:name="org.thunderdog.challegram.ACTION_PLAY_SKIP_PREVIOUS" />
-        <action android:name="org.thunderdog.challegram.ACTION_PLAY_SKIP_NEXT" />
-        <action android:name="org.thunderdog.challegram.ACTION_PLAY_STOP" />
-        <action android:name="org.thunderdog.challegram.ACTION_PLAY_PLAY" />
-        <action android:name="org.thunderdog.challegram.ACTION_PLAY_PAUSE" />
+        <action android:name="${applicationId}.ACTION_PLAY_SKIP_PREVIOUS" />
+        <action android:name="${applicationId}.ACTION_PLAY_SKIP_NEXT" />
+        <action android:name="${applicationId}.ACTION_PLAY_STOP" />
+        <action android:name="${applicationId}.ACTION_PLAY_PLAY" />
+        <action android:name="${applicationId}.ACTION_PLAY_PAUSE" />
       </intent-filter>
     </receiver>
 
@@ -347,17 +352,29 @@
       android:enabled="true"
       android:exported="false">
       <intent-filter>
-        <action android:name="org.thunderdog.challegram.ACTION_STOP_LOCATION" />
+        <action android:name="${applicationId}.ACTION_STOP_LOCATION" />
       </intent-filter>
     </receiver>
 
+
+    <activity
+      android:name=".CallActivity"
+      android:configChanges="keyboard|keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|locale|layoutDirection|uiMode"
+      android:excludeFromRecents="true"
+      android:launchMode="singleInstance"
+      android:showWhenLocked="true"
+      android:taskAffinity="${applicationId}.call"
+      android:turnScreenOn="true"
+      android:windowSoftInputMode="stateHidden|adjustPan"
+      android:exported="false"
+      tools:targetApi="o_mr1" />
 
     <activity
       android:name=".ManageSpaceActivity"
       android:configChanges="keyboard|keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|locale|layoutDirection|uiMode"
       android:launchMode="singleTask"
       android:windowSoftInputMode="adjustPan"
-      android:exported="true" />
+      android:exported="false" />
 
     <activity
       android:name=".MainActivity"
@@ -368,6 +385,11 @@
       <intent-filter android:label="@string/AppName">
         <action android:name="android.intent.action.MAIN" />
         <category android:name="android.intent.category.LAUNCHER" />
+      </intent-filter>
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN" />
+        <category android:name="android.intent.category.DEFAULT" />
+        <category android:name="android.intent.category.NOTIFICATION_PREFERENCES" />
       </intent-filter>
 
       <!-- Share from other apps -->

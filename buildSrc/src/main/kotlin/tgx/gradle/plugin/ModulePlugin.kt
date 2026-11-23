@@ -1,60 +1,67 @@
 package tgx.gradle.plugin
 
-import ApplicationConfig
 import Config
 import Sdk
 import com.android.build.api.dsl.ApplicationExtension
 import com.android.build.api.dsl.LibraryExtension
+import com.android.build.api.dsl.TestExtension
 import com.android.build.gradle.ProguardFiles
 import org.gradle.accessors.dm.LibrariesForLibs
 import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.api.tasks.compile.JavaCompile
-import org.gradle.kotlin.dsl.dependencies
-import org.gradle.kotlin.dsl.extra
-import org.gradle.kotlin.dsl.get
-import org.gradle.kotlin.dsl.the
-import tgx.gradle.findExtraFolders
-import tgx.gradle.getIntOrThrow
-import tgx.gradle.getOrThrow
-import tgx.gradle.loadProperties
+import org.gradle.kotlin.dsl.*
+import tgx.gradle.*
+import tgx.gradle.source.AppBuildVersionSource
+import tgx.gradle.source.KeystoreSource
+import java.io.File
 
-private data class Versions(
-  val compileSdk: Int,
-  val buildTools: String,
-  val legacyNdk: String,
-  val targetSdk: Int,
-) {
-  constructor(config: ApplicationConfig) : this(
-    compileSdk = config.compileSdkVersion,
-    buildTools = config.buildToolsVersion,
-    legacyNdk = config.legacyNdkVersion,
-    targetSdk = config.targetSdkVersion
-  )
-}
-
+@Suppress("UnstableApiUsage")
 open class ModulePlugin : Plugin<Project> {
   override fun apply(project: Project) {
-    val config = try {
-      project.extra["config"] as ApplicationConfig
-    } catch (_: Exception) {
-      null
-    }
-    val versions = if (config != null) {
-      Versions(config)
-    } else {
-      val versions = loadProperties("version.properties")
-      Versions(
-        compileSdk = versions.getIntOrThrow("version.sdk_compile"),
-        buildTools = versions.getOrThrow("version.build_tools"),
-        targetSdk = versions.getIntOrThrow("version.sdk_target"),
-        legacyNdk = versions.getOrThrow("version.ndk_legacy")
-      )
-    }
+    val config =
+      project.extensions.findByType<AppConfigurationExtension>()?.config?.get()
+    val doNotObfuscate =
+      config?.doNotObfuscate ?: false
+    val useLegacyNdk = (
+      project.extensions.findByType<AppConfigurationExtension>()?.useLegacyNdk ?:
+      project.gradleFlag("useLegacyNdk")
+    )
+    val build =
+      config?.build ?:
+      project.providers.of(AppBuildVersionSource::class) {
+        parameters.version.set(
+          project.isolated.rootProject.projectDirectory.file("version.properties")
+        )
+      }.get()
+
+    val appliedNdkVersion = useLegacyNdk.map { useLegacyNdk ->
+      if (useLegacyNdk) {
+        build.legacyNdkVersion
+      } else {
+        build.primaryNdkVersion
+      }
+    }.get()
+
+    val globalAbiFiltersProvider = (
+      project.extensions.findByType<AppConfigurationExtension>()?.abiFilters ?:
+      project.findAbiFilters(useLegacyNdk)
+    )
+    val globalAbiFilters = globalAbiFiltersProvider.get()
+
+    val enableSplitAbi = (
+      project.extensions.findByType<AppConfigurationExtension>()?.enableSplitAbi ?:
+      project.needEnableSplitAbi(globalAbiFiltersProvider)
+    ).get()
 
     val libs = project.the<LibrariesForLibs>()
     project.dependencies {
       add("coreLibraryDesugaring", libs.desugaring)
+    }
+    project.configurations.named {
+      it == "compileOnly" || it == "testCompileOnly" || it == "androidTestCompileOnly"
+    }.configureEach {
+      dependencies.addLater(libs.vkryl.annotation)
     }
 
     project.afterEvaluate {
@@ -71,6 +78,7 @@ open class ModulePlugin : Plugin<Project> {
           "-Xlint:-overloads",
           "-Xlint:-overrides",
           "-Xlint:-this-escape",
+          "-Xlint:-dangling-doc-comments",
 
           // TODO: fix deprecation warnings by migrating to newer APIs.
           "-Xlint:-deprecation",
@@ -79,14 +87,30 @@ open class ModulePlugin : Plugin<Project> {
     }
 
     val androidExt = project.extensions.getByName("android")
+    if (androidExt !is TestExtension && !project.path.startsWith(":tests:") &&
+      project.rootDir.resolve("tests/.git").exists()) {
+      project.pluginManager.apply("tgx-tests-module")
+    }
+    val keystore = config?.keystorePropertiesPath?.let { keystorePropertiesPath ->
+      project.providers.of(KeystoreSource::class) {
+        parameters.properties.set(
+          project.rootProject.projectDir.resolve(keystorePropertiesPath)
+        )
+      }
+    }
 
     androidExt.apply {
       when (this) {
         is LibraryExtension -> {
-          buildToolsVersion = versions.buildTools
-          ndkVersion = versions.legacyNdk
+          buildToolsVersion = build.buildToolsVersion
+          ndkVersion = appliedNdkVersion
           compileSdk {
-            version = release(versions.compileSdk)
+            version = release(build.compileSdkVersion)
+          }
+          lint {
+            checkReleaseBuilds = false
+            disable += "LintError"
+            // baseline = File("lint-baseline.xml")
           }
           compileOptions {
             isCoreLibraryDesugaringEnabled = true
@@ -101,15 +125,38 @@ open class ModulePlugin : Plugin<Project> {
           }
 
           defaultConfig {
-            minSdk = Config.MIN_SDK_VERSION
+            minSdk = maxOf(
+              Config.MIN_SDK_VERSION,
+              ndkVersion.ndkVersionToMinSdk()
+            )
+            // Legacy multidex, which minSdk 16 of legacy needs until AGP 11 drops it
+            @Suppress("DEPRECATION")
             multiDexEnabled = true
+            if (!enableSplitAbi) {
+              ndk.abiFilters += globalAbiFilters
+              externalNativeBuild.cmake.abiFilters += globalAbiFilters
+            }
+          }
+          splits.abi {
+            isEnable = enableSplitAbi
+            reset()
+            include(*globalAbiFilters.toTypedArray())
+            isUniversalApk = false
           }
           flavorDimensions += "SDK"
           productFlavors {
-            Sdk.VARIANTS.forEach { (_, variant) ->
+            Sdk.VARIANTS.values.forEach { variant ->
+              val selectedMinSdk = maxOf(
+                Config.MIN_SDK_VERSION,
+                variant.minSdk,
+                ndkVersion.ndkVersionToMinSdk()
+              )
               register(variant.flavor) {
+                dimension = "SDK"
                 externalNativeBuild.cmake.arguments(
-                  "-DANDROID_PLATFORM=android-${variant.minSdk}",
+                  "-DANDROID_PLATFORM=android-${selectedMinSdk}",
+                  "-DANDROID_MIN_SDK_VERSION=${selectedMinSdk}",
+                  "-DANDROID_STL=c++_shared",
                   "-DTGX_FLAVOR=${variant.flavor}"
                 )
                 sourceSets.getByName(variant.flavor) {
@@ -117,6 +164,7 @@ open class ModulePlugin : Plugin<Project> {
                   extraFolders.forEach { folderName ->
                     kotlin.directories += "src/$folderName/kotlin"
                     java.directories += "src/$folderName/java"
+                    res.directories += "src/$folderName/res"
                   }
                 }
               }
@@ -125,10 +173,15 @@ open class ModulePlugin : Plugin<Project> {
         }
 
         is ApplicationExtension -> {
-          buildToolsVersion = versions.buildTools
-          ndkVersion = versions.legacyNdk
+          buildToolsVersion = build.buildToolsVersion
+          ndkVersion = appliedNdkVersion
           compileSdk {
-            version = release(versions.compileSdk)
+            version = release(build.compileSdkVersion)
+          }
+          lint {
+            checkReleaseBuilds = false
+            disable += "LintError"
+            baseline = File("lint-baseline.xml")
           }
           compileOptions {
             isCoreLibraryDesugaringEnabled = true
@@ -143,11 +196,26 @@ open class ModulePlugin : Plugin<Project> {
           }
 
           defaultConfig {
-            minSdk = Config.MIN_SDK_VERSION
-            targetSdk = versions.targetSdk
+            minSdk = maxOf(
+              Config.MIN_SDK_VERSION,
+              ndkVersion.ndkVersionToMinSdk()
+            )
+            targetSdk = build.targetSdkVersion
+            @Suppress("DEPRECATION")
             multiDexEnabled = true
+            if (!enableSplitAbi) {
+              ndk.abiFilters += globalAbiFilters
+              externalNativeBuild.cmake.abiFilters += globalAbiFilters
+            }
           }
-          config?.keystore?.let { keystore ->
+          splits.abi {
+            isEnable = enableSplitAbi
+            reset()
+            include(*globalAbiFilters.toTypedArray())
+            isUniversalApk = false
+          }
+
+          keystore?.orNull?.let { keystore ->
             signingConfigs {
               arrayOf(
                 getByName("debug"),
@@ -158,6 +226,107 @@ open class ModulePlugin : Plugin<Project> {
                 config.keyAlias = keystore.keyAlias
                 config.keyPassword = keystore.keyPassword
                 config.enableV2Signing = true
+                config.enableV3Signing = true
+                if (config.name == "debug") {
+                  config.enableV4Signing = true
+                }
+              }
+            }
+          }
+
+          buildTypes {
+            getByName("debug") {
+              signingConfig = signingConfigs["debug"]
+
+              isDebuggable = true
+              isJniDebuggable = true
+              isMinifyEnabled = false
+
+              @Suppress("DEPRECATION")
+              multiDexKeepProguard = requireFile(project.layout.projectDirectory.file("multidex-rules.pro").asFile)
+
+              ndk.debugSymbolLevel = "full"
+
+              config?.takeIf {
+                it.forceOptimize
+              }?.let { config ->
+                isMinifyEnabled = !doNotObfuscate
+                isShrinkResources = !doNotObfuscate
+
+                proguardFiles(
+                  getDefaultProguardFile(ProguardFiles.ProguardFile.OPTIMIZE.fileName),
+                  "proguard-rules.pro"
+                )
+                if (config.isHuaweiBuild) {
+                  proguardFile("proguard-hms.pro")
+                }
+              }
+            }
+
+            getByName("release") {
+              signingConfig = signingConfigs.findByName("release") ?: signingConfigs["debug"].takeIf {
+                config?.isExperimentalBuild ?: false
+              }
+
+              isMinifyEnabled = !doNotObfuscate
+              isShrinkResources = !doNotObfuscate
+
+              @Suppress("DEPRECATION")
+              multiDexKeepProguard = requireFile(project.layout.projectDirectory.file("multidex-rules.pro").asFile)
+
+              ndk.debugSymbolLevel = "full"
+
+              proguardFiles(
+                getDefaultProguardFile(ProguardFiles.ProguardFile.OPTIMIZE.fileName),
+                "proguard-rules.pro"
+              )
+
+              if (config?.isHuaweiBuild ?: false) {
+                proguardFile("proguard-hms.pro")
+              }
+            }
+          }
+        }
+
+        is TestExtension -> {
+          buildToolsVersion = build.buildToolsVersion
+          ndkVersion = appliedNdkVersion
+          compileSdk {
+            version = release(build.compileSdkVersion)
+          }
+          compileOptions {
+            isCoreLibraryDesugaringEnabled = true
+            sourceCompatibility = Config.JAVA_VERSION
+            targetCompatibility = Config.JAVA_VERSION
+          }
+          defaultConfig {
+            minSdk = maxOf(
+              Config.MIN_SDK_VERSION,
+              ndkVersion.ndkVersionToMinSdk()
+            )
+            @Suppress("DEPRECATION")
+            multiDexEnabled = true
+          }
+
+          sourceSets.configureEach {
+            jniLibs.directories += "jniLibs"
+          }
+
+          keystore?.orNull?.let { keystore ->
+            signingConfigs {
+              arrayOf(
+                getByName("debug"),
+                maybeCreate("release")
+              ).forEach { config ->
+                config.storeFile = keystore.file
+                config.storePassword = keystore.password
+                config.keyAlias = keystore.keyAlias
+                config.keyPassword = keystore.keyPassword
+                config.enableV2Signing = true
+                config.enableV3Signing = true
+                if (config.name == "debug") {
+                  config.enableV4Signing = true
+                }
               }
             }
 
@@ -171,13 +340,15 @@ open class ModulePlugin : Plugin<Project> {
 
                 ndk.debugSymbolLevel = "full"
 
-                if (config.forceOptimize) {
-                  proguardFiles(
-                    getDefaultProguardFile(ProguardFiles.ProguardFile.OPTIMIZE.fileName),
-                    "proguard-rules.pro"
-                  )
-                  if (config.isHuaweiBuild) {
-                    proguardFile("proguard-hms.pro")
+                config?.let { config ->
+                  if (config.forceOptimize) {
+                    proguardFiles(
+                      getDefaultProguardFile(ProguardFiles.ProguardFile.OPTIMIZE.fileName),
+                      "proguard-rules.pro"
+                    )
+                    if (config.isHuaweiBuild) {
+                      proguardFile("proguard-hms.pro")
+                    }
                   }
                 }
               }
@@ -185,8 +356,9 @@ open class ModulePlugin : Plugin<Project> {
               getByName("release") {
                 signingConfig = signingConfigs["release"]
 
-                isMinifyEnabled = !config.doNotObfuscate
-                isShrinkResources = !config.doNotObfuscate
+                val doNotObfuscate = config?.doNotObfuscate ?: false
+                isMinifyEnabled = !doNotObfuscate
+                isShrinkResources = !doNotObfuscate
 
                 ndk.debugSymbolLevel = "full"
 
@@ -195,12 +367,16 @@ open class ModulePlugin : Plugin<Project> {
                   "proguard-rules.pro"
                 )
 
-                if (config.isHuaweiBuild) {
+                if (config?.isHuaweiBuild ?: false) {
                   proguardFile("proguard-hms.pro")
                 }
               }
             }
           }
+        }
+
+        else -> {
+          error(this)
         }
       }
     }

@@ -48,6 +48,7 @@ import org.thunderdog.challegram.data.TD;
 import org.thunderdog.challegram.player.AudioController;
 import org.thunderdog.challegram.player.TGPlayerController;
 import org.thunderdog.challegram.tool.UI;
+import org.thunderdog.challegram.unsorted.AppContext;
 import org.thunderdog.challegram.unsorted.Settings;
 import org.thunderdog.challegram.util.AppBuildInfo;
 import org.thunderdog.challegram.util.Crash;
@@ -100,7 +101,7 @@ public class TdlibManager implements Iterable<TdlibAccount>, UI.StateListener {
 
   public static boolean makeSync (Context context, int accountId, int cause, long causePushId, boolean sync, long timeout) {
     final long ms = SystemClock.uptimeMillis();
-    UI.initApp(context);
+    AppContext.init(context);
     final long taskId = causePushId == 0 ? Settings.instance().newPushId() : causePushId;
     final AtomicBoolean success = sync ? new AtomicBoolean(false) : null;
     final CountDownLatch latch = sync ? new CountDownLatch(1) : null;
@@ -158,7 +159,7 @@ public class TdlibManager implements Iterable<TdlibAccount>, UI.StateListener {
 
   private static void performSyncTask (Context context, int accountId, String tag, @NonNull NotificationTask task, @Nullable Filter<TdlibAccount> filter) {
     long startTimeMs = SystemClock.uptimeMillis();
-    UI.initApp(context);
+    AppContext.init(context);
     TdlibManager manager = TdlibManager.instanceForAccountId(accountId);
     manager.runWithLatch(latch -> {
       Runnable after = () -> {
@@ -310,6 +311,8 @@ public class TdlibManager implements Iterable<TdlibAccount>, UI.StateListener {
   private final ManagerHandler handler = new ManagerHandler(this);
   private final LiveLocationManager liveLocationManager = new LiveLocationManager(this);
   private final TdlibNotificationManager.NotificationQueue notificationQueue = new TdlibNotificationManager.NotificationQueue("NotificationQueue", this);
+  private final NotificationIcons notificationIcons =
+    Config.REUSE_NOTIFICATION_ICONS ? new NotificationIcons(4 * 1024 * 1024) : null;
   private final CallManager calls = new CallManager(this);
   private final Settings.ProxyChangeListener proxyChangeListener = new Settings.ProxyChangeListener() {
     @Override
@@ -355,7 +358,7 @@ public class TdlibManager implements Iterable<TdlibAccount>, UI.StateListener {
     });
 
     this.languageDatabasePath = getLanguageDatabasePath();
-    this.watchDog = new WatchDogContext(UI.getAppContext(), this);
+    this.watchDog = new WatchDogContext(AppContext.get(), this);
 
     this.player = new TGPlayerController(this);
     this.audio = new AudioController(this, player);
@@ -506,6 +509,17 @@ public class TdlibManager implements Iterable<TdlibAccount>, UI.StateListener {
     return notificationQueue;
   }
 
+  public NotificationIcons notificationIcons () {
+    return notificationIcons;
+  }
+
+  public static void trimMemory (int level) {
+    final TdlibManager manager = instance;
+    if (manager != null && manager.notificationIcons != null) {
+      manager.notificationIcons.trimMemory(level);
+    }
+  }
+
   private void load (int specificAccountId, boolean forceService) {
     readAccountConfig();
     TdlibAccount selectedAccount = specificAccountId != TdlibAccount.NO_ID ? accounts.get(specificAccountId) : currentAccount;
@@ -643,7 +657,7 @@ public class TdlibManager implements Iterable<TdlibAccount>, UI.StateListener {
         protected void process (Message msg) {
           int count = msg.arg1;
           try {
-            ShortcutBadger.applyCountOrThrow(UI.getAppContext(), count);
+            ShortcutBadger.applyCountOrThrow(AppContext.get(), count);
             logged = false;
           } catch (Throwable t) {
             if (!logged) {
@@ -725,7 +739,7 @@ public class TdlibManager implements Iterable<TdlibAccount>, UI.StateListener {
   @Override
   public Iterator<TdlibAccount> iterator () {
     List<TdlibAccount> accounts = new ArrayList<>(this.accounts);
-    Collections.sort(accounts, (a, b) -> {
+    ArrayUtils.insertionSort(accounts, (a, b) -> {
       boolean aCurrent = a == currentAccount;
       boolean bCurrent = b == currentAccount;
       if (aCurrent != bCurrent) {
@@ -808,7 +822,7 @@ public class TdlibManager implements Iterable<TdlibAccount>, UI.StateListener {
     if (accountsSorted.size() != activeAccounts.size() || accountsMod != accountsModCount) {
       accountsSorted.clear();
       accountsSorted.addAll(activeAccounts);
-      Collections.sort(accountsSorted, lastUsageComparator);
+      ArrayUtils.insertionSort(accountsSorted, lastUsageComparator);
       accountsMod = accountsModCount;
     }
     TdlibAccount account = account(accountId);
@@ -1650,6 +1664,7 @@ public class TdlibManager implements Iterable<TdlibAccount>, UI.StateListener {
         }
       }
       global().notifyTokenStateChanged(newState, error, fullError);
+      global().notifyResolvableProblemAvailabilityMightHaveChanged();
       if (newState == TokenState.ERROR && !StringUtils.isEmpty(error)) {
         String reportedError = Settings.instance().getReportedPushServiceError();
         if (reportedError == null || !reportedError.equals(error)) {
@@ -1718,7 +1733,7 @@ public class TdlibManager implements Iterable<TdlibAccount>, UI.StateListener {
       }
       return;
     }
-    if (BuildConfig.EXPERIMENTAL) {
+    if (!BuildConfig.FIREBASE_MESSAGING_ENABLED) {
       setTokenState(TokenState.ERROR, EXPERIMENTAL_BUILD_ERROR, null);
       if (after != null) {
         after.runWithBool(false);
@@ -1726,7 +1741,7 @@ public class TdlibManager implements Iterable<TdlibAccount>, UI.StateListener {
       return;
     }
     setTokenState(TokenState.INITIALIZING);
-    TdlibNotificationUtils.getDeviceToken(UI.getAppContext(), retryCount, new TokenRetrieverListener() {
+    TdlibNotificationUtils.getDeviceToken(AppContext.get(), retryCount, new TokenRetrieverListener() {
 
       @Override
       public void onTokenRetrievalSuccess (TdApi.@NotNull DeviceToken token) {
@@ -1830,7 +1845,7 @@ public class TdlibManager implements Iterable<TdlibAccount>, UI.StateListener {
     event.put("sdk", Build.VERSION.SDK_INT);
     event.put("app", appBuildInfo.toMap());
     event.put("cpu", U.getCpuArchitecture());
-    event.put("package_id", UI.getAppContext().getPackageName());
+    event.put("package_id", AppContext.get().getPackageName());
     event.put("device", deviceInformation());
     event.put("fingerprint", U.getApkFingerprint("SHA1"));
     event.put("device_id", Settings.instance().crashDeviceId());
@@ -2160,7 +2175,7 @@ public class TdlibManager implements Iterable<TdlibAccount>, UI.StateListener {
   }
 
   public static File getAccountConfigFile () {
-    File parent = UI.getAppContext().getFilesDir();
+    File parent = AppContext.get().getFilesDir();
     return new File(parent, "tdlib_accounts.bin");
   }
 
@@ -2290,6 +2305,15 @@ public class TdlibManager implements Iterable<TdlibAccount>, UI.StateListener {
     return tdlibDirectories;
   }
 
+  private static final String EXTERNAL_ACCOUNT_DIRECTORY_PREFIX = "x_account";
+
+  public static boolean isExternalTdlibFile (String relativePath) {
+    String[] names = relativePath.split("/");
+    int start = names[0].startsWith(EXTERNAL_ACCOUNT_DIRECTORY_PREFIX) &&
+      StringUtils.isNumeric(names[0].substring(EXTERNAL_ACCOUNT_DIRECTORY_PREFIX.length())) ? 1 : 0;
+    return names.length > start + 1 && getAllTdlibDirectories(false).contains(names[start]);
+  }
+
   public static long deleteLogFile (boolean old) {
     return deleteLogFiles(old ? DELETE_LOG_MODE_OLD : DELETE_LOG_MODE_CURRENT);
   }
@@ -2360,7 +2384,12 @@ public class TdlibManager implements Iterable<TdlibAccount>, UI.StateListener {
   }
 
   public static String getTdlibDirectory (int accountId, boolean allowExternal, boolean createIfNotFound) {
-    File file = allowExternal ? UI.getAppContext().getExternalFilesDir(null) : null;
+    File file;
+    if (allowExternal) {
+      file = AppContext.get().getExternalFilesDir(null);
+    } else {
+      file = null;
+    }
     if (file != null) {
       try {
         File externalStorageDirectory = Environment.getExternalStorageDirectory();
@@ -2386,7 +2415,7 @@ public class TdlibManager implements Iterable<TdlibAccount>, UI.StateListener {
     }
     if (file != null) {
       if (accountId != 0) {
-        file = new File(file, "x_account" + accountId);
+        file = new File(file, EXTERNAL_ACCOUNT_DIRECTORY_PREFIX + accountId);
         if (!file.exists()) {
           if (createIfNotFound) {
             if (!FileUtils.mkdirs(file))
@@ -2423,8 +2452,12 @@ public class TdlibManager implements Iterable<TdlibAccount>, UI.StateListener {
 
   // Lang pack
 
+  public static File getLanguageDatabaseDir () {
+    return new File(UI.getContext().getFilesDir(), "langpack");
+  }
+
   public static String getLanguageDatabasePath () {
-    File languageDatabaseDir = new File(UI.getContext().getFilesDir(), "langpack");
+    File languageDatabaseDir = getLanguageDatabaseDir();
     if (!FileUtils.createDirectory(languageDatabaseDir)) {
       throw new IllegalStateException("Cannot create working directory: " + languageDatabaseDir.getPath());
     }
@@ -2442,7 +2475,7 @@ public class TdlibManager implements Iterable<TdlibAccount>, UI.StateListener {
     synchronized (wakeLockSync) {
       if (wakeLock == null) {
         try {
-          PowerManager powerManager = (PowerManager) UI.getAppContext().getSystemService(Context.POWER_SERVICE);
+          PowerManager powerManager = (PowerManager) AppContext.get().getSystemService(Context.POWER_SERVICE);
           if (powerManager == null)
             return false;
           wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "tgx:main");

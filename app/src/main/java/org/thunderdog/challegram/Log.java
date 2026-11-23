@@ -29,7 +29,7 @@ import org.thunderdog.challegram.config.Config;
 import org.thunderdog.challegram.core.BaseThread;
 import org.thunderdog.challegram.telegram.TdlibManager;
 import org.thunderdog.challegram.tool.Screen;
-import org.thunderdog.challegram.tool.UI;
+import org.thunderdog.challegram.unsorted.AppContext;
 import org.thunderdog.challegram.unsorted.Settings;
 
 import java.io.File;
@@ -65,7 +65,7 @@ public class Log {
    * @return Log storage directory. @null in case of error
    */
   public static @Nullable File getLogDir () {
-    File logsDirectory = new File(UI.getAppContext().getFilesDir(), "logs");
+    File logsDirectory = new File(AppContext.get().getFilesDir(), "logs");
     if (!FileUtils.createDirectory(logsDirectory)) {
       android.util.Log.e(LOG_TAG, "Couldn't open logs directory: " + logsDirectory.getAbsolutePath());
       return null;
@@ -454,6 +454,28 @@ public class Log {
       setLogTagsImpl(tags);
       setThirdPartyLogLevels(level);
 
+      androidx.media3.common.util.Log.setLogger(new androidx.media3.common.util.Log.Logger() {
+        @Override
+        public void i (@NonNull String tag, @NonNull String message, @Nullable Throwable throwable) {
+          Log.i("[media3:%s]: %s", throwable, tag, message);
+        }
+
+        @Override
+        public void d (@NonNull String tag, @NonNull String message, @Nullable Throwable throwable) {
+          Log.d("[media3:%s]: %s", throwable, tag, message);
+        }
+
+        @Override
+        public void w (@NonNull String tag, @NonNull String message, @Nullable Throwable throwable) {
+          Log.w("[media3:%s]: %s", throwable, tag, message);
+        }
+
+        @Override
+        public void e (@NonNull String tag, @NonNull String message, @Nullable Throwable throwable) {
+          Log.e("[media3:%s]: %s", throwable, tag, message);
+        }
+      });
+
       loaded = true;
     }
   }
@@ -616,7 +638,7 @@ public class Log {
               osArch,
 
               // Related to Application Build
-              BuildConfig.VERSION_NAME,
+              U.getVersionName(),
               BuildConfig.ORIGINAL_VERSION_CODE,
 
               // Related to Android version
@@ -668,7 +690,7 @@ public class Log {
     return String.format(
       Locale.US,
       "App: %s\nSDK: %d (%s)\nManufacturer: %s\nModel: %s\nBrand: %s\nDisplay: %s\nProduct: %s\nFingerprint: %s\nScreen: %dx%d (%f)\n",
-      BuildConfig.VERSION_NAME,
+      U.getVersionName(),
 
       Build.VERSION.SDK_INT,
       SdkVersion.getPrettyName(),

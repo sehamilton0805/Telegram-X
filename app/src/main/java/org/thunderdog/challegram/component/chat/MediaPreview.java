@@ -464,6 +464,7 @@ public abstract class MediaPreview implements ListAnimator.Measurable {
       case TdApi.MessageChatAddMembers.CONSTRUCTOR:
       case TdApi.MessageChatJoinByLink.CONSTRUCTOR:
       case TdApi.MessageChatJoinByRequest.CONSTRUCTOR:
+      case TdApi.MessageChatJoinFromCommunity.CONSTRUCTOR:
       case TdApi.MessageChatDeleteMember.CONSTRUCTOR:
       case TdApi.MessageChatUpgradeTo.CONSTRUCTOR:
       case TdApi.MessageChatUpgradeFrom.CONSTRUCTOR:
@@ -523,12 +524,16 @@ public abstract class MediaPreview implements ListAnimator.Measurable {
       case TdApi.MessagePollOptionDeleted.CONSTRUCTOR:
       case TdApi.MessageChatAddedToCommunity.CONSTRUCTOR:
       case TdApi.MessageChatRemovedFromCommunity.CONSTRUCTOR:
+      case TdApi.MessageTonConnectRequest.CONSTRUCTOR:
+      case TdApi.MessageTonWalletTransfer.CONSTRUCTOR:
+      case TdApi.MessageUnpaidMessagesAllowedByLink.CONSTRUCTOR:
+      case TdApi.MessageWidget.CONSTRUCTOR:
       case TdApi.MessageUnsupported.CONSTRUCTOR: {
         // No media preview.
         break;
       }
       default: {
-        Td.assertMessageContent_af730a78();
+        Td.assertMessageContent_37851fea();
         throw Td.unsupported(message.content);
       }
     }

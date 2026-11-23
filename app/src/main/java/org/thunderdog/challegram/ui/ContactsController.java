@@ -54,6 +54,7 @@ import org.thunderdog.challegram.navigation.Menu;
 import org.thunderdog.challegram.navigation.TelegramViewController;
 import org.thunderdog.challegram.support.RippleSupport;
 import org.thunderdog.challegram.support.ViewSupport;
+import org.thunderdog.challegram.telegram.DateChangeListener;
 import org.thunderdog.challegram.telegram.Tdlib;
 import org.thunderdog.challegram.telegram.TdlibCache;
 import org.thunderdog.challegram.theme.ColorId;
@@ -77,6 +78,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 
 import me.vkryl.android.widget.FrameLayoutFix;
 import me.vkryl.core.StringUtils;
@@ -84,7 +86,8 @@ import me.vkryl.core.collection.LongList;
 import tgx.td.Td;
 
 public class ContactsController extends TelegramViewController<ContactsController.Args> implements OptionDelegate, BubbleHeaderView.Callback, TextWatcher, Runnable, Menu, Unlockable,
-  TdlibCache.UserDataChangeListener, TdlibCache.UserStatusChangeListener, Comparator<TdApi.User> {
+  TdlibCache.UserDataChangeListener, TdlibCache.UserStatusChangeListener, Comparator<TdApi.User>,
+  DateChangeListener {
   public static final int MODE_PICK = 1;
   public static final int MODE_CHANNEL_MEMBERS = 2;
   public static final int MODE_NEW_GROUP = 3;
@@ -838,9 +841,9 @@ public class ContactsController extends TelegramViewController<ContactsControlle
         forceSearchChats(q);
       }
     } else if (users != null && users.length > 0) {
-      q = Strings.clean(q.trim().toLowerCase());
+      q = Strings.clean(q.trim());
       if (!q.equals(lastQuery)) {
-        searchInternal(q, q.length() > lastQuery.length() && lastQuery.length() > 0 && q.startsWith(lastQuery));
+        searchInternal(q, q.length() > lastQuery.length() && lastQuery.length() > 0 && q.regionMatches(true, 0, lastQuery, 0, lastQuery.length()));
         lastQuery = q;
       }
     }
@@ -893,13 +896,11 @@ public class ContactsController extends TelegramViewController<ContactsControlle
           Log.critical("ContactsController::sortUsers: TGUser is null");
           continue;
         }
-        String firstName = Strings.clean(user.getFirstName().trim()).toLowerCase();
-        String lastName = Strings.clean(user.getLastName().trim()).toLowerCase();
         TdApi.Usernames usernames = user.getUsernames();
-        String check = (firstName + " " + lastName).trim();
+        String check = TD.getUserName(user.getFirstName(), user.getLastName());
 
         if (q != null) {
-          if (!firstName.startsWith(q) && !lastName.startsWith(q) && !check.startsWith(q) && !Td.findUsernameByPrefix(usernames, q)) {
+          if (!Strings.anyWordStartsWith(check, q) && !Td.findUsernameByPrefix(usernames, q)) {
             continue;
           }
         }
@@ -913,7 +914,7 @@ public class ContactsController extends TelegramViewController<ContactsControlle
           if ((charCount == 1 && Character.isDigit(codePoint)) || charCount > check.length()) {
             c = "#";
           } else {
-            c = check.substring(0, charCount).toUpperCase();
+            c = check.substring(0, charCount).toUpperCase(Locale.ROOT);
           }
         }
 
@@ -1305,6 +1306,7 @@ public class ContactsController extends TelegramViewController<ContactsControlle
           }
         });
         tdlib.cache().addGlobalUsersListener(this);
+        tdlib.context().dateManager().addListener(this);
         break;
       }
       case SOURCE_TYPE_LOCAL: {
@@ -1327,6 +1329,7 @@ public class ContactsController extends TelegramViewController<ContactsControlle
     }
     if (sourceType == SOURCE_TYPE_REMOTE) {
       tdlib.cache().removeGlobalUsersListener(this);
+      tdlib.context().dateManager().removeListener(this);
     }
   }
 
@@ -1372,6 +1375,13 @@ public class ContactsController extends TelegramViewController<ContactsControlle
   @Override
   public void onUserStatusChanged (final long userId, final TdApi.UserStatus status, boolean uiOnly) {
     updateUserStatus(userId, status);
+  }
+
+  @Override
+  public void onTimeFormatChanged () {
+    if (adapter != null) {
+      Views.updateRows(recyclerView, 0, adapter.getItemCount(), Views::updateRowTimes);
+    }
   }
 
   // Local storage

@@ -14,7 +14,6 @@
  */
 package org.thunderdog.challegram.player;
 
-import android.annotation.TargetApi;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
@@ -34,6 +33,7 @@ import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.annotation.RequiresApi;
 import androidx.media3.common.C;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
@@ -80,7 +80,7 @@ import me.vkryl.android.widget.FrameLayoutFix;
 import me.vkryl.core.MathUtils;
 import tgx.td.Td;
 
-@TargetApi(Build.VERSION_CODES.JELLY_BEAN)
+@RequiresApi(Build.VERSION_CODES.JELLY_BEAN)
 public class RoundVideoController extends BasePlaybackController implements
   BaseActivity.ActivityListener,
   TdlibFilesManager.FileListener,
@@ -1185,7 +1185,9 @@ public class RoundVideoController extends BasePlaybackController implements
             if (outSp.canAnimateScrollPosition) {
               smoothScrollBy((MessagesController) c, outSp.dy, outSp.duration);
             } else {
-              ((MessagesController) c).getManager().getLayoutManager().scrollToPositionWithOffset(outSp.index, outSp.offset);
+              final MessagesManager manager = ((MessagesController) c).getManager();
+              manager.messageResize().onListScrolled();
+              manager.getLayoutManager().scrollToPositionWithOffset(outSp.index, outSp.offset);
             }
 
             awaitingCurrentView = c.isFocused();

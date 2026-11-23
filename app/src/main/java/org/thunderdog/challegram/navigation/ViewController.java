@@ -2148,12 +2148,12 @@ public abstract class ViewController<T> implements Future<View>, ThemeChangeList
         CharSequence text;
         if (i == 0) {
           button.setId(R.id.btn_cancel);
-          button.setText(text = b.cancelStr.toUpperCase());
+          button.setText(text = Lang.uppercase(b.cancelStr));
           button.setLayoutParams(FrameLayoutFix.newParams(ViewGroup.LayoutParams.WRAP_CONTENT, Screen.dp(55f), (Lang.rtl() ? Gravity.RIGHT : Gravity.LEFT) | Gravity.BOTTOM));
           settings.cancelButton = button;
         } else {
           button.setId(R.id.btn_save);
-          button.setText(text = b.saveStr.toUpperCase());
+          button.setText(text = Lang.uppercase(b.saveStr));
           button.setLayoutParams(FrameLayoutFix.newParams(ViewGroup.LayoutParams.WRAP_CONTENT, Screen.dp(55f), (Lang.rtl() ? Gravity.LEFT : Gravity.RIGHT) | Gravity.BOTTOM));
           settings.doneButton = button;
         }
@@ -2888,7 +2888,7 @@ public abstract class ViewController<T> implements Future<View>, ThemeChangeList
         } else {
           text = Lang.getString(futureRes, Lang.getDate(targetMillis, TimeUnit.MILLISECONDS), Lang.time(targetMillis, TimeUnit.MILLISECONDS));
         }
-        Views.setMediumText(sendView, text.toUpperCase());
+        Views.setMediumText(sendView, Lang.uppercase(text));
       };
 
       int dayCount = 366;
@@ -3488,6 +3488,9 @@ public abstract class ViewController<T> implements Future<View>, ThemeChangeList
     onFocusStateChanged();
     notifyFocusChanged(true);
     context.addKeyEventListener(this);
+    if (Config.ENABLE_TEST_HOOKS) {
+      updateScreenMarker();
+    }
   }
 
   protected final void trackUserActivity () {
@@ -3619,6 +3622,39 @@ public abstract class ViewController<T> implements Future<View>, ThemeChangeList
     if (delegate != null && destroyListeners != null) {
       destroyListeners.remove(delegate);
     }
+  }
+
+  protected final View newStartupMarker () {
+    return newTestMarker(R.id.startup_marker);
+  }
+
+  private View newTestMarker (@IdRes int id) {
+    View marker = new View(context) {
+      @Override
+      public boolean onTouchEvent (MotionEvent event) {
+        return false;
+      }
+    };
+    marker.setId(id);
+    marker.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
+    marker.setLayoutParams(FrameLayoutFix.newParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT, Gravity.TOP | Gravity.CENTER_HORIZONTAL));
+    return marker;
+  }
+
+  private void updateScreenMarker () {
+    ViewGroup rootView = context.getRootView();
+    View marker = rootView.findViewById(R.id.screen_marker);
+    if (marker == null) {
+      marker = newTestMarker(R.id.screen_marker);
+      rootView.addView(marker);
+    }
+    String screenName;
+    try {
+      screenName = context.getResources().getResourceEntryName(getId());
+    } catch (Throwable t) {
+      screenName = getClass().getSimpleName();
+    }
+    marker.setContentDescription(screenName);
   }
 
   @Override

@@ -6,13 +6,14 @@ on:
     branches: [ fork ]
 
 concurrency:
-  group: fork-apk
+  # своя очередь у каждой ветки: проверочная сборка рабочей ветки не отменяет сборку fork и наоборот
+  group: fork-apk-${{ github.ref }}
   # пуш с [skip apk] не должен убивать идущую сборку APK
   cancel-in-progress: ${{ !contains(github.event.head_commit.message, '[skip apk]') }}
 
 jobs:
   build:
-    name: Build latestArm64Release
+    name: Build latestRelease (arm64)
     # "[skip apk]" в сообщении коммита пропускает сборку APK (например, правки только tdlib-build.yml);
     # "[skip ci]" не подходит: он заглушил бы и сборку TDLib
     if: "!contains(github.event.head_commit.message, '[skip apk]')"
@@ -38,41 +39,41 @@ jobs:
           TD_COMMIT=$(prop td_commit); TAG=$(prop release_tag); ASSET=$(prop asset); SHA=$(prop sha256)
           ACTUAL=$(tr -d '[:space:]' < tdlib/version.txt)
           [[ "$ACTUAL" == "$TD_COMMIT" ]] || { echo "::error::pinned TDLib $TD_COMMIT != submodule $ACTUAL - rerun tdlib-build.yml and update tdlib-patches/pinned.properties"; exit 1; }
+          # Готовые библиотеки сабмодуля лежат по NDK и минимальному SDK варианта сборки:
+          # вариант latest собирается основным NDK под android-33
+          NDK=$(sed -n 's/^version.ndk_primary=//p' version.properties | tr -d '\r')
+          TARGET="tdlib/src/main/libs/$NDK/android-33/arm64-v8a/libtdjni.so"
+          # Промах по пути должен ронять сборку, а не молча оставлять в APK TDLib без патча
+          test -f "$TARGET" || { echo "::error::$TARGET not found - the layout of the tdlib submodule has changed"; exit 1; }
           mkdir -p "$RUNNER_TEMP/tdlib"
           gh release download "$TAG" -p "$ASSET" -D "$RUNNER_TEMP/tdlib" --clobber
           echo "$SHA  $RUNNER_TEMP/tdlib/$ASSET" | sha256sum -c -
-          cp "$RUNNER_TEMP/tdlib/$ASSET" tdlib/src/main/libs/arm64-v8a/libtdjni.so
-          echo "patched TDLib $TAG installed: $(grep -c disable_online_notification_delay tdlib/src/main/libs/arm64-v8a/libtdjni.so) option string(s)"
+          cp "$RUNNER_TEMP/tdlib/$ASSET" "$TARGET"
+          echo "patched TDLib $TAG installed into $TARGET: $(grep -c disable_online_notification_delay "$TARGET") option string(s)"
 
       - name: Set up JDK
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: '25'
 
       - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y git-lfs unzip sed wget make clang yasm nasm ccache
 
-      - name: Native libraries cache
-        id: native-cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            app/jni/third_party/ffmpeg/build
-            app/jni/third_party/libvpx/build
-            app/.cxx
-          key: natives-latest-arm64-${{ hashFiles('version.properties') }}
-
+      # ffmpeg, libvpx и tlottie теперь собирают задачи Gradle с кэшем сборки (~/.gradle/caches/build-cache-1).
+      # Ключ уникален для коммита, чтобы кэш сохранялся после каждой сборки, а брался самый свежий
       - name: Gradle cache
         uses: actions/cache@v4
         with:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-          key: gradle-${{ hashFiles('**/*.gradle.kts', 'gradle/**') }}
-          restore-keys: gradle-
+          key: gradle-${{ hashFiles('**/*.gradle.kts', 'gradle/**', 'version.properties') }}-${{ github.sha }}
+          restore-keys: |
+            gradle-${{ hashFiles('**/*.gradle.kts', 'gradle/**', 'version.properties') }}-
+            gradle-
 
       - name: ccache
         uses: actions/cache@v4
@@ -81,7 +82,7 @@ jobs:
           key: ccache-${{ github.sha }}
           restore-keys: ccache-
 
-      # After the cache steps: version.properties feeds the natives cache key,
+      # After the cache steps: version.properties feeds the cache key,
       # which must stay stable across builds
       - name: Bump version for reliable updates
         run: |
@@ -105,7 +106,7 @@ jobs:
             echo "key.password=$KEY_PASSWORD"
           } > "$RUNNER_TEMP/signing/keystore.properties"
 
-      - name: Configure project and build native dependencies
+      - name: Configure project
         env:
           TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
           TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
@@ -113,20 +114,12 @@ jobs:
           APP_NAME: Telegram X RG
           APP_DOWNLOAD_URL: https://github.com/${{ github.repository }}/releases
           APP_SOURCES_URL: https://github.com/${{ github.repository }}
-          NATIVE_CACHE_HIT: ${{ steps.native-cache.outputs.cache-hit }}
           GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
         run: |
           export TERM=xterm
           export KEYSTORE_FILE="$RUNNER_TEMP/signing/keystore.properties"
-          # Trim the native build matrix to the single shipped variant (latest + arm64-v8a)
-          sed -i 's/^for ABI in arm64-v8a x86_64 armeabi-v7a x86 ; do$/for ABI in arm64-v8a ; do/' scripts/private/build-ffmpeg-impl.sh
-          sed -i 's/^for ABI in arm64-v8a armeabi-v7a x86_64 x86 ; do$/for ABI in arm64-v8a ; do/' scripts/private/build-vpx-impl.sh
-          sed -i 's/for FLAVOR in \$FLAVORS; do/for FLAVOR in latest; do/' scripts/private/build-ffmpeg-impl.sh scripts/private/build-vpx-impl.sh
-          # Skip vpx/ffmpeg entirely when restored from cache
-          if [[ "$NATIVE_CACHE_HIT" == "true" ]]; then
-            sed -i 's/^build-vpx-impl.sh$/echo "libvpx restored from cache"/' scripts/setup.sh
-            sed -i 's/^build-ffmpeg-impl.sh$/echo "ffmpeg restored from cache"/' scripts/setup.sh
-          fi
+          # tlottie собирается Cargo: нужен Rust версии version.rust с целями Android
+          bash scripts/setup-rust.sh
           bash scripts/setup.sh
           # A google-services.json for our applicationId enables FCM push and drops the
           # "experimental build" banner + FORCE_DISABLE_NOTIFICATIONS. Without the secret,
@@ -147,7 +140,8 @@ jobs:
           CCACHE_MAXSIZE: 1G
         run: |
           ccache --zero-stats
-          ./gradlew :app:assembleLatestArm64Release --stacktrace --no-daemon
+          # Вариантов по ABI больше нет: набор ABI задаёт -Pabi, без него собрались бы все четыре
+          ./gradlew :app:assembleLatestRelease -Pabi=arm64 --stacktrace --no-daemon
           ccache --show-stats
 
       - name: Upload APK
@@ -162,11 +156,24 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
+          APK_COUNT=$(find app/build/outputs/apk -name '*.apk' | wc -l)
+          # Один APK на сборку: иначе в релиз ушёл бы случайный из нескольких
+          [[ "$APK_COUNT" == "1" ]] || { echo "::error::expected exactly one APK, found $APK_COUNT"; find app/build/outputs/apk -name '*.apk'; exit 1; }
           APK=$(find app/build/outputs/apk -name '*.apk' | head -1)
           TAG="build-${{ github.run_number }}"
           SHORT_SHA=$(git rev-parse --short "${{ github.sha }}")
           cp "$APK" "Telegram-X-RG-$TAG-$SHORT_SHA.apk"
-          gh release create "$TAG" "Telegram-X-RG-$TAG-$SHORT_SHA.apk" \
-            --title "Telegram X RG $TAG ($SHORT_SHA)" \
-            --notes "Automated fork build. Commit: ${{ github.sha }}" \
-            --latest
+          if [[ "${{ github.ref_name }}" == "fork" ]]; then
+            gh release create "$TAG" "Telegram-X-RG-$TAG-$SHORT_SHA.apk" \
+              --title "Telegram X RG $TAG ($SHORT_SHA)" \
+              --notes "Automated fork build. Commit: ${{ github.sha }}" \
+              --latest
+          else
+            # Сборка с рабочей ветки: пре-релиз для проверки, «latest» остаётся за веткой fork
+            gh release create "$TAG" "Telegram-X-RG-$TAG-$SHORT_SHA.apk" \
+              --target "${{ github.sha }}" \
+              --title "Telegram X RG $TAG pre-release (${{ github.ref_name }}, $SHORT_SHA)" \
+              --notes "Pre-release build of branch ${{ github.ref_name }} for testing. Commit: ${{ github.sha }}" \
+              --prerelease --latest=false
+          fi

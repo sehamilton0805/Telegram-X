@@ -1,4 +1,4 @@
-@file:Suppress("UnstableApiUsage")
+@file:Suppress("UnstableApiUsage", "AvoidApplyPluginMethod")
 
 apply(from = "properties.gradle.kts")
 
@@ -23,6 +23,7 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "tgx"
+includeBuild("vkryl/annotation")
 include(
   ":tdlib",
   ":tgcalls",
@@ -35,5 +36,16 @@ include(
   ":extension:bridge",
   ":extension:${extra["extension"]}",
 
+  ":stub:fingerprint",
+
   ":app"
 )
+if (settingsDir.resolve("tests/.git").exists()) {
+  include(
+    ":tests:baseline-profile",
+    ":tests:core",
+    ":tests:ui",
+    ":tests:benchmark",
+    ":tests:microbenchmark"
+  )
+}

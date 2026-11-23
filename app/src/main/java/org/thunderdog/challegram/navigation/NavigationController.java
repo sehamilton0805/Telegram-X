@@ -21,6 +21,7 @@ import android.content.Context;
 import android.content.res.Configuration;
 import android.graphics.Rect;
 import android.os.Build;
+import android.util.DisplayMetrics;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -51,6 +52,7 @@ import java.util.ArrayList;
 
 import me.vkryl.android.AnimatorUtils;
 import me.vkryl.android.widget.FrameLayoutFix;
+import me.vkryl.annotation.MadeByLLM;
 import me.vkryl.core.MathUtils;
 import me.vkryl.core.lambda.Future;
 
@@ -237,6 +239,7 @@ public class NavigationController implements Future<View>, ThemeChangeListener, 
       contentWrapper.addView(controller.getValue());
     }
     controller.attachNavigationController(this);
+    syncKeyboardState(controller); // @MadeByLLM("opus-5.5")
     controller.onPrepareToShow();
     controller.onAttachStateChanged(this, true);
     checkDisallowScreenshots();
@@ -254,9 +257,17 @@ public class NavigationController implements Future<View>, ThemeChangeListener, 
       contentWrapper.addView(controller.getValue(), index);
     }
     controller.attachNavigationController(this);
+    syncKeyboardState(controller); // @MadeByLLM("opus-5.5")
     controller.onPrepareToShow();
     controller.onAttachStateChanged(this, true);
     checkDisallowScreenshots();
+  }
+
+  @MadeByLLM(value = "opus-5.5", id = "stale-keyboard-state-fix")
+  private void syncKeyboardState (ViewController<?> controller) {
+    if (controller.getKeyboardState() && !UI.getContext(context).isKeyboardVisible()) {
+      controller.onKeyboardStateChanged(false);
+    }
   }
 
   public void removeChildWrapper (ViewController<?> controller) {
@@ -479,6 +490,10 @@ public class NavigationController implements Future<View>, ThemeChangeListener, 
   public void initController (ViewController<?> with) {
     if (!isAnimating && with != null) {
       NavigationStack stack = getStack();
+
+      with.postOnAnimationExecute(() ->
+        with.addOneShotFocusListener(with.context()::markActivityReady)
+      );
 
       with.getValue();
 
@@ -728,8 +743,15 @@ public class NavigationController implements Future<View>, ThemeChangeListener, 
     translationMode = direction;
     translatingForward = forward;
 
-    currentWidth = rootView.getMeasuredWidth();
-    currentHeight = rootView.getMeasuredHeight();
+    if (rootView.getMeasuredHeight() != 0) {
+      currentWidth = rootView.getMeasuredWidth();
+      currentHeight = rootView.getMeasuredHeight();
+    } else {
+      // No layout yet, e.g. under the passcode since the start of the activity
+      DisplayMetrics metrics = context.getResources().getDisplayMetrics();
+      currentWidth = metrics.widthPixels;
+      currentHeight = metrics.heightPixels;
+    }
     currentPrevWidth = -(currentWidth / Size.NAVIGATION_PREVIEW_TRANSLATE_FACTOR);
 
     if (forward) {

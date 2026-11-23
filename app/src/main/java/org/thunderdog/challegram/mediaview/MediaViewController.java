@@ -14,7 +14,6 @@
  */
 package org.thunderdog.challegram.mediaview;
 
-import android.annotation.TargetApi;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -52,7 +51,7 @@ import android.widget.Toast;
 import androidx.annotation.DrawableRes;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-import androidx.media3.common.MediaLibraryInfo;
+import androidx.annotation.RequiresApi;
 import androidx.media3.common.PlaybackException;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
@@ -121,6 +120,7 @@ import org.thunderdog.challegram.navigation.TooltipOverlayView;
 import org.thunderdog.challegram.navigation.ViewController;
 import org.thunderdog.challegram.support.ViewSupport;
 import org.thunderdog.challegram.telegram.CallManager;
+import org.thunderdog.challegram.telegram.DateChangeListener;
 import org.thunderdog.challegram.telegram.MessageListener;
 import org.thunderdog.challegram.telegram.RightId;
 import org.thunderdog.challegram.telegram.TGLegacyManager;
@@ -198,7 +198,7 @@ public class MediaViewController extends ViewController<MediaViewController.Args
   PopupLayout.TouchSectionProvider, FlingDetector.Callback, CallManager.CurrentCallListener,
   ColorPreviewView.BrushChangeListener, PaintState.UndoStateListener, MediaView.FactorChangeListener,
   EmojiToneHelper.Delegate, MessageListener, InputView.SelectionChangeListener, PopupLayout.ShowListener,
-  RootFrameLayout.InsetsChangeListener{
+  RootFrameLayout.InsetsChangeListener, DateChangeListener {
 
   private static final long REVEAL_ANIMATION_DURATION = /*BuildConfig.DEBUG ? 1800l :*/ 180;
   private static final long REVEAL_OPEN_ANIMATION_DURATION = /*BuildConfig.DEBUG ? 1800l :*/ 180l;
@@ -1609,7 +1609,8 @@ public class MediaViewController extends ViewController<MediaViewController.Args
 
   private boolean canGoPip () {
     MediaItem current = stack.getCurrent();
-    return current != null && current.isVideo() && !current.isGifType();
+    return (mode == MODE_MESSAGES || mode == MODE_SIMPLE) &&
+      current != null && current.isVideo() && !current.isGifType();
   }
 
   private boolean canEdit () {
@@ -2128,6 +2129,13 @@ public class MediaViewController extends ViewController<MediaViewController.Args
       }
     }
     return null;
+  }
+
+  @Override
+  public void onTimeFormatChanged () {
+    if (headerCell != null) {
+      headerCell.setSubtitle(genSubtitle());
+    }
   }
 
   private CharSequence genSubtitle () {
@@ -4219,7 +4227,7 @@ public class MediaViewController extends ViewController<MediaViewController.Args
   private int desiredThumbScrollByX;
 
   private void ensureThumbsPosition (boolean scrollBy, boolean onlyMeasure) {
-    if (thumbsRecyclerView.getMeasuredWidth() > 0) {
+    if (thumbsRecyclerView.getMeasuredWidth() > 0 && thumbsAdapter.items != null) {
       ensureThumbsPosition(scrollBy, onlyMeasure, thumbsAdapter.items.getFocusItemPosition());
     }
   }
@@ -5358,6 +5366,7 @@ public class MediaViewController extends ViewController<MediaViewController.Args
     loadMoreIfNeeded();
 
     TGLegacyManager.instance().addEmojiListener(this);
+    tdlib.context().dateManager().addListener(this);
     tdlib.context().calls().addCurrentCallListener(this);
     if (stack.getCurrent().getSourceChatId() != 0) {
       subscribeToChatId(stack.getCurrent().getSourceChatId());
@@ -5503,6 +5512,7 @@ public class MediaViewController extends ViewController<MediaViewController.Args
       Views.destroyRecyclerView(thumbsRecyclerView);
     }
     TGLegacyManager.instance().removeEmojiListener(this);
+    tdlib.context().dateManager().removeListener(this);
     if (mediaView != null) {
       mediaView.destroy();
     }
@@ -6911,13 +6921,19 @@ public class MediaViewController extends ViewController<MediaViewController.Args
   private TooltipOverlayView.TooltipInfo brushToneHint;
 
   private void hidePaintEditor () {
-    paintView.setEditorVisible(false);
-    if (paintingItem.setPaintState(paintingItem.getPaintState(), false)) {
-      mediaView.getBaseReceiver().invalidate();
+    if (paintView != null) {
+      paintView.setEditorVisible(false);
     }
-    paintView.pause();
-    paintView.setScaleX(1f);
-    paintView.setScaleY(1f);
+    if (paintingItem != null && paintingItem.setPaintState(paintingItem.getPaintState(), false)) {
+      if (mediaView != null) {
+        mediaView.getBaseReceiver().invalidate();
+      }
+    }
+    if (paintView != null) {
+      paintView.pause();
+      paintView.setScaleX(1f);
+      paintView.setScaleY(1f);
+    }
     showDefaultBrushHint();
   }
 
@@ -8764,7 +8780,12 @@ public class MediaViewController extends ViewController<MediaViewController.Args
               return false;
             }
 
-            final @RightId int rightId = file.isVideo() ? RightId.SEND_VIDEOS : RightId.SEND_PHOTOS;
+            final @RightId int rightId;
+            if (file.isVideo()) {
+              rightId = RightId.SEND_VIDEOS;
+            } else {
+              rightId = asFiles ? RightId.SEND_DOCS : RightId.SEND_PHOTOS;
+            }
             if (m.showSlowModeRestriction(sendButton, options)) {
               return false;
             }
@@ -8874,7 +8895,7 @@ public class MediaViewController extends ViewController<MediaViewController.Args
           private final int[] size = new int[2];
 
           @Override
-          @TargetApi(Build.VERSION_CODES.LOLLIPOP)
+          @RequiresApi(Build.VERSION_CODES.LOLLIPOP)
           public void getOutline (View view, android.graphics.Outline outline) {
             if (getPipSize(size)) {
               // size[0] /= view.getScaleX();
@@ -9052,7 +9073,7 @@ public class MediaViewController extends ViewController<MediaViewController.Args
 
     /*if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
       editWrap.setOutlineProvider(new android.view.ViewOutlineProvider() {
-        @TargetApi(Build.VERSION_CODES.LOLLIPOP)
+        @RequiresApi(Build.VERSION_CODES.LOLLIPOP)
         @Override
         public void getOutline (View view, android.graphics.Outline outline) {
           int centerX = view.getMeasuredWidth() / 2;

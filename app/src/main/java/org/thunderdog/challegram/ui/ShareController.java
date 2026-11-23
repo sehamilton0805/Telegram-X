@@ -96,6 +96,7 @@ import org.thunderdog.challegram.tool.Strings;
 import org.thunderdog.challegram.tool.TGMimeType;
 import org.thunderdog.challegram.tool.UI;
 import org.thunderdog.challegram.tool.Views;
+import org.thunderdog.challegram.unsorted.AppContext;
 import org.thunderdog.challegram.unsorted.Settings;
 import org.thunderdog.challegram.util.HapticMenuHelper;
 import org.thunderdog.challegram.util.StringList;
@@ -652,7 +653,7 @@ public class ShareController extends TelegramViewController<ShareController.Args
 
     Background.instance().post(() -> {
       try {
-        File vcfCacheDirectory = new File(UI.getAppContext().getFilesDir(), "vcf");
+        File vcfCacheDirectory = new File(AppContext.get().getFilesDir(), "vcf");
         if (!FileUtils.createDirectory(vcfCacheDirectory))
           return;
         File file = new File(vcfCacheDirectory, "temp.vcf");
@@ -795,7 +796,7 @@ public class ShareController extends TelegramViewController<ShareController.Args
               textRes = R.string.ShareTextPlain;
               break;
             default:
-              Td.assertMessageContent_af730a78();
+              Td.assertMessageContent_37851fea();
               title1Res = R.string.ShareTitleMedia;
               title2Res = R.string.ShareTitleMediaX;
               textRes = R.string.ShareTextMedia;
@@ -2619,13 +2620,13 @@ public class ShareController extends TelegramViewController<ShareController.Args
     private float copyWidth;
 
     public void setShareText (@NonNull String text) {
-      this.copyText = text.toUpperCase();
+      this.copyText = Lang.uppercase(text);
       this.copyTextFake = Text.needFakeBold(copyText);
       this.copyWidth = U.measureText(copyText, Paints.getTitleBigPaint(copyTextFake));
     }
 
     public void setSendText (@NonNull String text) {
-      sendText = text.toUpperCase();
+      sendText = Lang.uppercase(text);
       sendTextFake = Text.needFakeBold(sendText);
       sendWidth = U.measureText(sendText, Paints.getTitleBigPaint(sendTextFake));
     }

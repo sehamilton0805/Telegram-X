@@ -11,7 +11,7 @@ on:
         required: false
         default: ''
   push:
-    branches: [ fork ]
+    branches: [ fork, 'wip/**' ]
     paths:
       - '.github/workflows/tdlib-build.yml'
       - 'tdlib-patches/*.patch'
@@ -38,11 +38,15 @@ jobs:
         run: |
           set -euo pipefail
           git submodule update --init --depth 1 tdlib
-          git -C tdlib lfs pull --include="openssl/arm64-v8a/lib/*"
-          ls -la tdlib/openssl/arm64-v8a/lib
+          # OpenSSL сабмодуля лежит по NDK и минимальному SDK варианта сборки приложения:
+          # вариант latest собирается основным NDK под android-33
+          NDK=$(sed -n 's/^version.ndk_primary=//p' version.properties | tr -d '\r')
+          OPENSSL_LIB="openssl/$NDK/android-33/arm64-v8a/lib"
+          git -C tdlib lfs pull --include="$OPENSSL_LIB/*"
+          ls -la "tdlib/$OPENSSL_LIB"
           # LFS-указатель тоже непустой файл: проверяем магию ELF, иначе линковка упадёт через 40 минут
           for f in libcryptox.so libsslx.so; do
-            magic="$(head -c4 "tdlib/openssl/arm64-v8a/lib/$f" | od -An -tx1 | tr -d ' \n')"
+            magic="$(head -c4 "tdlib/$OPENSSL_LIB/$f" | od -An -tx1 | tr -d ' \n')"
             [[ "$magic" == "7f454c46" ]] || { echo "::error::$f is an LFS pointer, not an ELF (magic=$magic)"; exit 1; }
           done
 
@@ -57,9 +61,10 @@ jobs:
           set -eu  # no pipefail: `yes |` exits via SIGPIPE once sdkmanager closes stdin
           sudo apt-get update
           sudo apt-get install -y gperf php-cli make perl unzip ccache
-          yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --install "ndk;23.2.8568313" "cmake;3.22.1" "platforms;android-34" > /dev/null
+          NDK=$(sed -n 's/^version.ndk_primary=//p' version.properties | tr -d '\r')
+          yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$NDK" "cmake;3.22.1" "platforms;android-34" > /dev/null
           ls "$ANDROID_SDK_ROOT/ndk" "$ANDROID_SDK_ROOT/cmake"
-          test -d "$ANDROID_SDK_ROOT/ndk/23.2.8568313"
+          test -d "$ANDROID_SDK_ROOT/ndk/$NDK"
           test -x "$ANDROID_SDK_ROOT/cmake/3.22.1/bin/cmake"
           test -f "$ANDROID_SDK_ROOT/platforms/android-34/android.jar"
 
@@ -96,12 +101,16 @@ jobs:
         run: |
           set -euo pipefail
           ccache --zero-stats
+          NDK=$(sed -n 's/^version.ndk_primary=//p' version.properties | tr -d '\r')
           cp tdlib/source/build-tdlib-impl.sh td/example/android/build-tdlib.sh
-          sed -i 's/^for ABI in arm64-v8a armeabi-v7a x86_64 x86 ; do$/for ABI in arm64-v8a ; do/' td/example/android/build-tdlib.sh
-          grep -Fxq 'for ABI in arm64-v8a ; do' td/example/android/build-tdlib.sh || { echo "::error::ABI loop was not trimmed to arm64-v8a"; exit 1; }
+          # Список ABI скрипт сабмодуля принимает аргументом; если он снова зашит циклом, сборка должна упасть,
+          # а не собирать все четыре ABI
+          grep -q 'for ABI in \$ABIS' td/example/android/build-tdlib.sh || { echo "::error::build-tdlib-impl.sh no longer takes the ABI list as an argument"; exit 1; }
           cd td/example/android
-          ./build-tdlib.sh "$ANDROID_SDK_ROOT" 23.2.8568313 "$GITHUB_WORKSPACE/tdlib/openssl" c++_static Java android-34
-          ls -la tdlib/libs/arm64-v8a build-arm64-v8a-Java/libtdjni.so*
+          # Аргументы: SDK, NDK, каталог OpenSSL (внутри него <NDK>/android-<API>/<ABI>), STL, интерфейс,
+          # уровень API, список ABI, пакет SDK для android.jar
+          ./build-tdlib.sh "$ANDROID_SDK_ROOT" "$NDK" "$GITHUB_WORKSPACE/tdlib/openssl" c++_static Java 33 "arm64-v8a" android-34
+          ls -la tdlib/libs/arm64-v8a build-33-arm64-v8a-Java/libtdjni.so*
           ccache --show-stats
 
       - name: ccache save
@@ -119,7 +128,7 @@ jobs:
           # build-tdlib-impl.sh удаляет .debug из tdlib/libs после упаковки в tdlib-debug.zip;
           # нестрипнутая копия остаётся в каталоге сборки (POST_BUILD в example/android/CMakeLists.txt)
           cp td/example/android/tdlib/libs/arm64-v8a/libtdjni.so out/libtdjni-arm64-v8a.so
-          cp td/example/android/build-arm64-v8a-Java/libtdjni.so.debug out/libtdjni-arm64-v8a.so.debug
+          cp td/example/android/build-33-arm64-v8a-Java/libtdjni.so.debug out/libtdjni-arm64-v8a.so.debug
           test "$(grep -c disable_online_notification_delay out/libtdjni-arm64-v8a.so)" -ge 1
           grep -a -o -E 'lib(crypto|ssl)x?\.so' out/libtdjni-arm64-v8a.so | sort -u
           cp tdlib-patches/*.patch out/
@@ -136,7 +145,7 @@ jobs:
           TAG="tdlib-${TD_COMMIT:0:7}-r${{ github.run_number }}"
           [[ "${{ github.run_attempt }}" == "1" ]] || TAG="$TAG-a${{ github.run_attempt }}"
           gh release create "$TAG" --prerelease --target "$GITHUB_SHA" --title "TDLib ${TD_COMMIT:0:7} patched (arm64)" \
-            --notes "tdlib/td@${TD_COMMIT} + tdlib-patches/*. arm64-v8a only, c++_static, RelWithDebInfo (stripped + .debug)." out/*
+            --notes "tdlib/td@${TD_COMMIT} + tdlib-patches/*. arm64-v8a only, android-33, c++_static, RelWithDebInfo (stripped + .debug)." out/*
           {
             echo "td_commit=$TD_COMMIT"
             echo "release_tag=$TAG"

@@ -63,6 +63,7 @@ import java.io.File;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 
 import me.vkryl.android.util.InvalidateContentProvider;
@@ -70,6 +71,7 @@ import me.vkryl.android.util.MultipleViewProvider;
 import me.vkryl.core.BitwiseUtils;
 import me.vkryl.core.StringUtils;
 import me.vkryl.core.reference.ReferenceList;
+import tgx.player.VideoDecoders;
 import tgx.td.ChatId;
 import tgx.td.Td;
 import tgx.td.data.HlsVideo;
@@ -216,7 +218,7 @@ public class MediaItem implements MessageSourceProvider, InvalidateContentProvid
       }
       String extension = U.getExtension(document.fileName);
       if (!StringUtils.isEmpty(extension)) {
-        extension = extension.toLowerCase();
+        extension = extension.toLowerCase(Locale.ROOT);
       }
       String alternateMimeType = TGMimeType.mimeTypeForExtension(extension);
       if (!StringUtils.isEmpty(alternateMimeType) && !alternateMimeType.equals(document.mimeType)) {
@@ -495,6 +497,9 @@ public class MediaItem implements MessageSourceProvider, InvalidateContentProvid
   private void setVideo (TdApi.Video video, TdApi.AlternativeVideo[] alternativeVideos, @Nullable TdApi.Photo cover, boolean allowIcon, boolean isDocument) {
     this.sourceVideo = video;
     this.sourceAlternativeVideos = alternativeVideos;
+    if (alternativeVideos != null && alternativeVideos.length > 0) {
+      VideoDecoders.prefetchVideoDecoders();
+    }
 
     if (cover != null) {
       setMiniThumbnail(cover.minithumbnail);
@@ -991,7 +996,7 @@ public class MediaItem implements MessageSourceProvider, InvalidateContentProvid
       case TdApi.MessageAnimation.CONSTRUCTOR ->
         new MediaItem(context, tdlib, chatId, sponsoredMessage.messageId, null, 0, (TdApi.MessageAnimation) sponsoredMessage.content);
       default -> {
-        Td.assertMessageContent_af730a78();
+        Td.assertMessageContent_37851fea();
         throw Td.unsupported(sponsoredMessage.content);
       }
     };

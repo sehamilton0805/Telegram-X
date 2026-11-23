@@ -14,7 +14,6 @@
  */
 package org.thunderdog.challegram.theme;
 
-import android.annotation.TargetApi;
 import android.content.Context;
 import android.content.res.ColorStateList;
 import android.graphics.Paint;
@@ -22,7 +21,6 @@ import android.graphics.PorterDuff;
 import android.graphics.PorterDuffColorFilter;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
-import android.graphics.drawable.RippleDrawable;
 import android.graphics.drawable.ShapeDrawable;
 import android.graphics.drawable.StateListDrawable;
 import android.graphics.drawable.shapes.RoundRectShape;
@@ -34,6 +32,7 @@ import androidx.annotation.ColorInt;
 import androidx.annotation.DrawableRes;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.annotation.RequiresApi;
 
 import org.thunderdog.challegram.FillingDrawable;
 import org.thunderdog.challegram.R;
@@ -47,7 +46,7 @@ import org.thunderdog.challegram.tool.Drawables;
 import org.thunderdog.challegram.tool.Paints;
 import org.thunderdog.challegram.tool.PorterDuffPaint;
 import org.thunderdog.challegram.tool.Screen;
-import org.thunderdog.challegram.tool.UI;
+import org.thunderdog.challegram.unsorted.AppContext;
 import org.thunderdog.challegram.unsorted.Settings;
 import org.thunderdog.challegram.util.CustomStateListDrawable;
 
@@ -61,9 +60,10 @@ public class Theme {
   public static final int EXPORT_FLAG_INCLUDE_DEFAULT_VALUES = 1;
   public static final int EXPORT_FLAG_JAVA = 1 << 1;
 
+  @SuppressWarnings("DiscouragedApi")
   public static int getIdResourceIdentifier (@NonNull String key) {
     try {
-      Context context = UI.getAppContext();
+      Context context = AppContext.get();
       return context.getResources().getIdentifier(key, "id", context.getPackageName());
     } catch (Throwable ignored) {
       return 0;
@@ -558,7 +558,7 @@ public class Theme {
     }
   }
 
-  @TargetApi(Build.VERSION_CODES.LOLLIPOP)
+  @RequiresApi(Build.VERSION_CODES.LOLLIPOP)
   private static Drawable fillingRippleSelector (@ColorId int backgroundColorId, float radius) {
     return new android.graphics.drawable.RippleDrawable(
       new ColorStateList(new int[][] {StateSet.WILD_CARD}, new int[] {RIPPLE_COLOR}),
@@ -566,7 +566,7 @@ public class Theme {
     );
   }
 
-  @TargetApi(Build.VERSION_CODES.LOLLIPOP)
+  @RequiresApi(Build.VERSION_CODES.LOLLIPOP)
   private static Drawable fillingRippleSelector (@ColorId int backgroundColorId) {
     return new android.graphics.drawable.RippleDrawable(
       new ColorStateList(new int[][] {StateSet.WILD_CARD}, new int[] {RIPPLE_COLOR}),
@@ -734,7 +734,7 @@ public class Theme {
   // Transparent drawable
 
   public static Drawable filteredDrawable (@DrawableRes int res, @ColorId int colorId, @Nullable ViewController<?> themeProvider) {
-    Drawable drawable = ViewSupport.getDrawableFilter(UI.getAppContext(), res, new PorterDuffColorFilter(Theme.getColor(colorId), PorterDuff.Mode.MULTIPLY));
+    Drawable drawable = ViewSupport.getDrawableFilter(AppContext.get(), res, new PorterDuffColorFilter(Theme.getColor(colorId), PorterDuff.Mode.MULTIPLY));
     if (themeProvider != null) {
       themeProvider.addThemeSpecialFilterListener(drawable, colorId);
     }
@@ -773,7 +773,7 @@ public class Theme {
     }
   }
 
-  @TargetApi(Build.VERSION_CODES.LOLLIPOP)
+  @RequiresApi(Build.VERSION_CODES.LOLLIPOP)
   private static Drawable transparentRippleSelector (final int color) {
     return new android.graphics.drawable.RippleDrawable(
       new ColorStateList(new int[][] {StateSet.WILD_CARD}, new int[] {color}),
@@ -782,7 +782,7 @@ public class Theme {
     );
   }
 
-  @TargetApi(Build.VERSION_CODES.LOLLIPOP)
+  @RequiresApi(Build.VERSION_CODES.LOLLIPOP)
   private static Drawable transparentRippleSelector (final int color, final float radius) {
     return new android.graphics.drawable.RippleDrawable(
       new ColorStateList(new int[][] {StateSet.WILD_CARD}, new int[] {color}),
@@ -809,7 +809,7 @@ public class Theme {
     }
   }
 
-  @TargetApi(Build.VERSION_CODES.LOLLIPOP)
+  @RequiresApi(Build.VERSION_CODES.LOLLIPOP)
   private static Drawable customRippleSelector (Drawable drawable) {
     return new android.graphics.drawable.RippleDrawable(
       new ColorStateList(new int[][] {StateSet.WILD_CARD}, new int[] {0x40a0a0a0}),
@@ -832,7 +832,7 @@ public class Theme {
     }
   }
 
-  @TargetApi(Build.VERSION_CODES.LOLLIPOP)
+  @RequiresApi(Build.VERSION_CODES.LOLLIPOP)
   private static Drawable circleRippleSelector (final float size, final @ColorId int colorId) {
     return new android.graphics.drawable.RippleDrawable(
       new ColorStateList(new int[][] {StateSet.WILD_CARD}, new int[] {0x40a0a0a0}),
@@ -855,7 +855,7 @@ public class Theme {
     }
   }
 
-  @TargetApi(Build.VERSION_CODES.LOLLIPOP)
+  @RequiresApi(Build.VERSION_CODES.LOLLIPOP)
   private static Drawable rectRippleSelector (final float size, final float padding, final @ColorId int colorId) {
     return new android.graphics.drawable.RippleDrawable(
       new ColorStateList(new int[][] {StateSet.WILD_CARD}, new int[] {0x60a0a0a0}),
@@ -982,7 +982,7 @@ public class Theme {
         new int[][]{StateSet.WILD_CARD},
         new int[]{pressedColor}
       );
-      return new RippleDrawable(colorStateList, defaultDrawable, pressedDrawable);
+      return new android.graphics.drawable.RippleDrawable(colorStateList, defaultDrawable, pressedDrawable);
     } else {
       StateListDrawable stateListDrawable = new StateListDrawable();
       stateListDrawable.addState(new int[]{android.R.attr.state_pressed}, pressedDrawable);
@@ -1005,7 +1005,7 @@ public class Theme {
         new int[][]{StateSet.WILD_CARD},
         new int[]{(color & 0x00ffffff) | 0x19000000}
       );
-      return new RippleDrawable(colorStateList, null, maskDrawable);
+      return new android.graphics.drawable.RippleDrawable(colorStateList, null, maskDrawable);
     } else {
       StateListDrawable stateListDrawable = new StateListDrawable();
       stateListDrawable.addState(new int[]{android.R.attr.state_pressed}, createRoundRectDrawable(Screen.dp(3), (color & 0x00ffffff) | 0x19000000));

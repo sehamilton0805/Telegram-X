@@ -190,7 +190,7 @@ public class AvatarPickerManager extends MediaLayoutManager {
         TextView button = Views.newTextView(context.context(), 16, Theme.getColor(customButtonColorId), Gravity.CENTER, Views.TEXT_FLAG_BOLD | Views.TEXT_FLAG_HORIZONTAL_PADDING);
         context.addThemeTextColorListener(button, customButtonColorId);
 
-        button.setText(customButtonText.toUpperCase());
+        button.setText(Lang.uppercase(customButtonText));
         button.setOnClickListener(v -> customButtonCallback.run());
 
         RippleSupport.setSimpleWhiteBackground(button, context);
@@ -252,7 +252,7 @@ public class AvatarPickerManager extends MediaLayoutManager {
 
       final Uri image = data.getData();
       if (image != null) {
-        String imagePath = U.tryResolveFilePath(image);
+        String imagePath = U.resolveSharedFilePath(image);
         if (imagePath != null) {
           if (imagePath.endsWith(".webp")) {
             UI.showToast("Webp is not supported for profile photos", Toast.LENGTH_LONG);

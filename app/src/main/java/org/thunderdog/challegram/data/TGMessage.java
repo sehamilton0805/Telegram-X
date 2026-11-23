@@ -55,11 +55,11 @@ import org.drinkless.tdlib.Client;
 import org.drinkless.tdlib.TdApi;
 import org.drinkmore.Tracer;
 import org.thunderdog.challegram.BaseActivity;
-import org.thunderdog.challegram.BuildConfig;
 import org.thunderdog.challegram.Log;
 import org.thunderdog.challegram.R;
 import org.thunderdog.challegram.U;
 import org.thunderdog.challegram.component.chat.MessageQuickActionSwipeHelper;
+import org.thunderdog.challegram.component.chat.MessageResizeRules;
 import org.thunderdog.challegram.component.chat.MessageView;
 import org.thunderdog.challegram.component.chat.MessageViewGroup;
 import org.thunderdog.challegram.component.chat.MessagesManager;
@@ -1172,6 +1172,9 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
 
   private int computeBubbleHeight () {
     int height = getContentHeight();
+    if (Config.ENABLE_TEST_HOOKS) {
+      height += testExtraHeight;
+    }
     if (replyData != null && !alignReplyHorizontally()) {
       height += getBubbleReplyOffset();
     }
@@ -1376,7 +1379,7 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
       buildBubble(false);
       int oldHeight = height;
       height = computeHeight();
-      if (oldHeight != height) {
+      if (oldHeight != height && !keepsTopOnHeightChange()) {
         manager.onMessageHeightChanged(getChatId(), getId(), oldHeight, height);
       }
       return oldHeight != height;
@@ -1460,6 +1463,9 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
       return MathUtils.fromTo(height, Screen.dp(HIDDEN_BY_MESSAGE_FILTER_HEIGHT) + extraPadding + headerPadding, isHiddenByFilter.getFloatValue());
     } else {
       int height = pContentY + getContentHeight() + getPaddingBottom() + extraPadding;
+      if (Config.ENABLE_TEST_HOOKS) {
+        height += testExtraHeight;
+      }
       if (inlineKeyboard != null && !inlineKeyboard.isEmpty()) {
         height += inlineKeyboard.getHeight() + xPaddingBottom;
       }
@@ -1991,6 +1997,9 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
   }
 
   public final void draw (MessageView view, Canvas c, @NonNull AvatarReceiver avatarReceiver, Receiver replyReceiver, ComplexReceiver replyTextMediaReceiver, DoubleImageReceiver previewReceiver, ImageReceiver contentReceiver, GifReceiver gifReceiver, ComplexReceiver complexReceiver) {
+    if (Config.ENABLE_TEST_HOOKS) {
+      manager.messageResize().logFrame(this);
+    }
     final int viewWidth = view.getMeasuredWidth();
     final int viewHeight = view.getMeasuredHeight();
 
@@ -2188,12 +2197,26 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
 
       // Clock, tick and views
       if (isSending()) {
-        Drawables.draw(c, Icons.getClockIcon(ColorId.iconLight), clockX, pClockTop - Screen.dp(Icons.CLOCK_SHIFT_Y), Paints.getIconLightPorterDuffPaint());
+        Icons.drawBitmap(
+          c,
+          R.drawable.deproko_baseline_clock_24,
+          clockX,
+          pClockTop - Screen.dp(Icons.CLOCK_SHIFT_Y),
+          Paints.getIconLightPorterDuffPaint()
+        );
       } else if (isFailed()) {
         // TODO failure icon
       } else if (shouldShowTicks() && getViewCountMode() != VIEW_COUNT_MAIN) {
         boolean unread = isUnread() && !noUnread();
-        Drawables.draw(c, unread ? Icons.getSingleTick(ColorId.ticks) : Icons.getDoubleTick(ColorId.ticksRead), viewsX, pTicksTop - Screen.dp(Icons.TICKS_SHIFT_Y), unread ? Paints.getTicksPaint() : Paints.getTicksReadPaint());
+        Icons.drawBitmap(
+          c,
+          unread ?
+            R.drawable.deproko_baseline_check_single_24 :
+            R.drawable.deproko_baseline_check_double_24,
+          viewsX,
+          pTicksTop - Screen.dp(Icons.TICKS_SHIFT_Y),
+          unread ? Paints.getTicksPaint() : Paints.getTicksReadPaint()
+        );
       }
 
       int right = pTicksLeft - (shouldShowTicks() ? Icons.getSingleTickWidth() + Screen.dp(2.5f) : 0); //needMetadata ? pTimeLeft - Screen.dp(4f) : pTicksLeft;
@@ -2206,7 +2229,14 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
         if (isBeingEdited()) {
           right -= Icons.getEditedIconWidth();
           right -= Screen.dp(COUNTER_ADD_MARGIN);
-          Drawables.draw(c, Icons.getClockIcon(ColorId.iconLight), pTicksLeft - (shouldShowTicks() ? Icons.getSingleTickWidth() + Screen.dp(2.5f) : 0) - Icons.getEditedIconWidth() - Screen.dp(6f), pTicksTop - Screen.dp(5f), Paints.getIconLightPorterDuffPaint());
+          Icons.drawBitmap(
+            c,
+            R.drawable.deproko_baseline_clock_24,
+            pTicksLeft - (shouldShowTicks() ? Icons.getSingleTickWidth() + Screen.dp(2.5f) : 0) -
+              Icons.getEditedIconWidth() - Screen.dp(6f),
+            pTicksTop - Screen.dp(5f),
+            Paints.getIconLightPorterDuffPaint()
+          );
         } else {
           isEdited.draw(c, right, top, Gravity.RIGHT, 1f, view, ColorId.iconLight, isEditedCounterLastDrawRect);
           right -= isEdited.getScaledWidth(Screen.dp(COUNTER_ICON_MARGIN));
@@ -3968,7 +3998,7 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
     onBubbleHasChanged();
     if (height != oldHeight) {
       // FIXME?
-      if (hasAnyTargetToInvalidate()) {
+      if (hasAnyTargetToInvalidate() && !keepsTopOnHeightChange()) {
         manager.onMessageHeightChanged(getChatId(), getId(), oldHeight, height);
       }
       requestLayout();
@@ -4104,7 +4134,13 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
         if ((useBubble() && !drawBubbleTimeOverContent()) && viewsWidth > clockWidth) {
           startX += viewsWidth - clockWidth;
         }
-        Drawables.draw(c, Icons.getClockIcon(iconColorId), startX - Screen.dp(Icons.CLOCK_SHIFT_X), startY + Screen.dp(5f) - Screen.dp(Icons.CLOCK_SHIFT_Y), iconPaint);
+        Icons.drawBitmap(
+          c,
+          R.drawable.deproko_baseline_clock_24,
+          startX - Screen.dp(Icons.CLOCK_SHIFT_X),
+          startY + Screen.dp(5f) - Screen.dp(Icons.CLOCK_SHIFT_Y),
+          iconPaint
+        );
         startX += clockWidth;
       } else {
         viewCounter.draw(c, startX, counterY, Gravity.LEFT, 1f, view, iconColorId);
@@ -4132,7 +4168,13 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
 
     if (shouldShowEdited()) {
       if (isBeingEdited()) {
-        Drawables.draw(c, Icons.getClockIcon(iconColorId), startX - Screen.dp(6f), startY + Screen.dp(4.5f) - Screen.dp(5f), iconPaint);
+        Icons.drawBitmap(
+          c,
+          R.drawable.deproko_baseline_clock_24,
+          startX - Screen.dp(6f),
+          startY + Screen.dp(4.5f) - Screen.dp(5f),
+          iconPaint
+        );
         startX += Icons.getEditedIconWidth() + Screen.dp(3f);
       } else {
         isEdited.draw(c, startX, counterY, Gravity.LEFT, 1f, view, iconColorId, isEditedCounterLastDrawRect);
@@ -4174,10 +4216,24 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
       if (isFailed) {
         // TODO failure icon
       } else if (isSending) {
-        Drawables.draw(c, Icons.getClockIcon(iconColorId), startX - Screen.dp(Icons.CLOCK_SHIFT_X), top - Screen.dp(Icons.CLOCK_SHIFT_Y), iconPaint);
+        Icons.drawBitmap(
+          c,
+          R.drawable.deproko_baseline_clock_24,
+          startX - Screen.dp(Icons.CLOCK_SHIFT_X),
+          top - Screen.dp(Icons.CLOCK_SHIFT_Y),
+          iconPaint
+        );
       } else {
         boolean unread = isUnread() && !noUnread();
-        Drawables.draw(c, unread ? Icons.getSingleTick(iconColorId) : Icons.getDoubleTick(iconColorId), startX - Screen.dp(Icons.TICKS_SHIFT_X), top - Screen.dp(Icons.TICKS_SHIFT_Y), unread ? ticksPaint : ticksReadPaint);
+        Icons.drawBitmap(
+          c,
+          unread ?
+            R.drawable.deproko_baseline_check_single_24 :
+            R.drawable.deproko_baseline_check_double_24,
+          startX - Screen.dp(Icons.TICKS_SHIFT_X),
+          top - Screen.dp(Icons.TICKS_SHIFT_Y),
+          unread ? ticksPaint : ticksReadPaint
+        );
       }
       startX += Icons.getSingleTickWidth();
     }
@@ -4448,6 +4504,98 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
 
   public int getHeight () {
     return height;
+  }
+
+  // Builds of tests: height added below the content, changed like any animated height
+  private int testExtraHeight, testExtraHeightFrom, testExtraHeightTo;
+  private int testExtraHeightAt = Integer.MAX_VALUE;
+  private boolean isMeasuringTestHeight;
+  private FactorAnimator testHeightAnimator;
+
+  public void setTestExtraHeight (int extraHeight) {
+    if (Config.ENABLE_TEST_HOOKS) {
+      manager.messageResize().forgetChanges();
+      final int height = getHeight();
+      testExtraHeight = Math.max(0, extraHeight);
+      rebuildContentDimensions();
+      if (getHeight() != height) {
+        requestLayout();
+      }
+    }
+  }
+
+  public void animateTestExtraHeight (int extraHeight) {
+    if (!Config.ENABLE_TEST_HOOKS) {
+      return;
+    }
+    final boolean isReverse = testHeightAnimator != null && testHeightAnimator.isAnimating();
+    testExtraHeightFrom = testExtraHeight;
+    testExtraHeightTo = Math.max(0, extraHeight);
+    isMeasuringTestHeight = true;
+    testExtraHeight = testExtraHeightTo;
+    rebuildContentDimensions();
+    final int finalHeight = getHeight();
+    testExtraHeight = testExtraHeightFrom;
+    rebuildContentDimensions();
+    isMeasuringTestHeight = false;
+    manager.messageResize().start(
+      this,
+      finalHeight,
+      isReverse,
+      new int[] {0, getHeight(), 1, 1},
+      (visibleTop, visibleBottom) -> new int[] {
+        visibleTop, getTestLineAfter(visibleTop), visibleBottom, getTestLineAfter(visibleBottom)
+      }
+    );
+    if (testHeightAnimator == null) {
+      testHeightAnimator = new FactorAnimator(0, (id, factor, fraction, callee) -> {
+        testExtraHeight = MathUtils.fromTo(testExtraHeightFrom, testExtraHeightTo, factor);
+        onAnimatedHeightFrame(factor);
+      }, AnimatorUtils.DECELERATE_INTERPOLATOR, Text.CHANGE_DURATION);
+    }
+    testHeightAnimator.forceFactor(0f);
+    testHeightAnimator.animateTo(1f);
+  }
+
+  public void setTestExtraHeightAt (int at) {
+    if (Config.ENABLE_TEST_HOOKS) {
+      testExtraHeightAt = at;
+    }
+  }
+
+  protected final void onAnimatedHeightFrame (float factor) {
+    if (rebuildContentDimensions()) {
+      requestLayout();
+    } else {
+      invalidate();
+    }
+    manager.messageResize().onFrame(this, factor);
+  }
+
+  public boolean isAnimatingHeight () {
+    // By frames of onAnimatedHeightFrame, each of which requests layout
+    return Config.ENABLE_TEST_HOOKS && testHeightAnimator != null &&
+      testHeightAnimator.isAnimating();
+  }
+
+  private int getTestLineAfter (int y) {
+    // A line in a removed part goes to where that part starts
+    final int shift = testExtraHeightTo - testExtraHeightFrom;
+    return y < testExtraHeightAt ? y : Math.max(testExtraHeightAt, y + shift);
+  }
+
+  protected boolean keepsTopOnHeightChange () {
+    // MessageResize moves it in place of onMessageHeightChanged
+    return isMeasuringTestHeight || manager.messageResize().isMoving(this);
+  }
+
+  public @Nullable int[] getSwitchedBlocks () {
+    // Blocks that a user switched, see Settings.MessageState
+    return null;
+  }
+
+  public void restoreSwitchedBlocks (int[] blocks) {
+    // Before its first layout
   }
 
   public int getContentX () {
@@ -5011,6 +5159,14 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
     return msg.chatId;
   }
 
+  public final TdApi.MessageSender getChatSenderId () {
+    if (ChatId.isUserChat(msg.chatId)) {
+      return new TdApi.MessageSenderUser(tdlib.chatUserId(msg.chatId));
+    } else {
+      return new TdApi.MessageSenderChat(msg.chatId);
+    }
+  }
+
   private TdApi.ChatAdministrator administrator;
 
   private String getAdministratorSign () {
@@ -5433,6 +5589,12 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
     } else {
       return mergeTime;
     }
+  }
+
+  public int getMergeFlags () {
+    return flags & (MESSAGE_FLAG_IS_BOTTOM | MESSAGE_FLAG_HAS_OLDER_MESSAGE |
+      MESSAGE_FLAG_BELOW_HEADER | FLAG_MERGE_FORWARD | FLAG_MERGE_BOTTOM | FLAG_HEADER_ENABLED |
+      FLAG_SHOW_TICKS | FLAG_SHOW_BADGE | FLAG_SHOW_DATE | FLAG_EXTRA_PADDING);
   }
 
   public boolean isForward () {
@@ -8599,6 +8761,9 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
         case TdApi.MessageChatJoinByLink.CONSTRUCTOR: {
           return new TGMessageService(context, msg, (TdApi.MessageChatJoinByLink) content);
         }
+        case TdApi.MessageChatJoinFromCommunity.CONSTRUCTOR: {
+          return new TGMessageService(context, msg, (TdApi.MessageChatJoinFromCommunity) content);
+        }
         case TdApi.MessageChatJoinByRequest.CONSTRUCTOR: {
           return new TGMessageService(context, msg, (TdApi.MessageChatJoinByRequest) content);
         }
@@ -8745,6 +8910,10 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
         case TdApi.MessageSuggestedPostRefunded.CONSTRUCTOR:
         case TdApi.MessageGiftedGrams.CONSTRUCTOR:
         case TdApi.MessagePaymentSuccessfulBot.CONSTRUCTOR:
+        case TdApi.MessageTonConnectRequest.CONSTRUCTOR:
+        case TdApi.MessageTonWalletTransfer.CONSTRUCTOR:
+        case TdApi.MessageUnpaidMessagesAllowedByLink.CONSTRUCTOR:
+        case TdApi.MessageWidget.CONSTRUCTOR:
           break;
 
         case TdApi.MessageUnsupported.CONSTRUCTOR:
@@ -8757,7 +8926,7 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
           break;
         }
         default: {
-          Td.assertMessageContent_af730a78();
+          Td.assertMessageContent_37851fea();
           throw Td.unsupported(msg.content);
         }
       }
@@ -8801,7 +8970,7 @@ public abstract class TGMessage implements InvalidateContentProvider, TdlibDeleg
 
     logEntity.offset = b.length();
 
-    b.append(Lang.getString(R.string.AppName)).append(' ').append(BuildConfig.VERSION_NAME).append("\n");
+    b.append(Lang.getString(R.string.AppName)).append(' ').append(U.getVersionName()).append("\n");
     b.append("Type: ").append(msg.content != null ? msg.content.getClass().getSimpleName() : "NULL").append("\n");
     b.append("Android: ").append(SdkVersion.getPrettyName()).append(" (").append(Build.VERSION.SDK_INT).append(")\n");
     b.append("Screen: ").append(Screen.widestSide()).append("x").append(Screen.smallestSide()).append("x").append(Screen.density()).append("\n");

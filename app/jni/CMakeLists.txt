@@ -1,9 +1,17 @@
-cmake_minimum_required(VERSION 3.10.2 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.22.1 FATAL_ERROR)
 project(tgx VERSION 1.0.0 LANGUAGES C CXX)
-message(STATUS "Building ${PROJECT_NAME} platform: ${ANDROID_PLATFORM} abi: ${ANDROID_ABI} type: ${CMAKE_BUILD_TYPE} flavor: ${TGX_FLAVOR} (${PROJECT_SOURCE_DIR})")
+message(STATUS "Building ${PROJECT_NAME} ndk: r${ANDROID_NDK_MAJOR} (${ANDROID_NDK_REVISION}) platform: ${ANDROID_PLATFORM} (${ANDROID_MIN_SDK_VERSION}) abi: ${ANDROID_ABI} type: ${CMAKE_BUILD_TYPE} flavor: ${TGX_FLAVOR} (${PROJECT_SOURCE_DIR})")
 
-if (NOT ${TGX_FLAVOR} MATCHES "legacy|lollipop|marshmallow|latest")
-  message(FATAL_ERROR "Unknown flavor: ${TGX_FLAVOR}")
+if(NOT ANDROID_NDK_MAJOR OR NOT ANDROID_NDK_REVISION)
+  message(FATAL_ERROR "Unknown NDK: r${ANDROID_NDK_MAJOR} (${ANDROID_NDK_REVISION})")
+endif()
+
+if (NOT DEFINED ANDROID_MIN_SDK_VERSION)
+  message(FATAL_ERROR "ANDROID_MIN_SDK_VERSION is not set")
+endif()
+
+if(NOT EXISTS "${ANDROID_NDK}")
+  message(FATAL_ERROR "ANDROID_NDK is not set")
 endif()
 
 # == Include ==
@@ -15,11 +23,14 @@ include("${CMAKE_HOME_DIRECTORY}/cmake/Join.cmake")
 # == Dirs ==
 
 set(THIRDPARTY_DIR "${PROJECT_SOURCE_DIR}/third_party")
-set(TGX_ROOT_DIR "${PROJECT_SOURCE_DIR}/../..")
 set(TDLIB_DIR "${TGX_ROOT_DIR}/tdlib")
 set(UTILS_DIR "${THIRDPARTY_DIR}/jni-utils")
 
-set(ENABLE_TGVOIP yes)
+if(ANDROID_MIN_SDK_VERSION GREATER_EQUAL 21)
+  set(ENABLE_TGVOIP yes)
+else()
+  set(ENABLE_TGVOIP no)
+endif()
 
 # Using webp only if building for 32-bit platform
 #if (${ANDROID_ABI} STREQUAL "armeabi-v7a" OR ${ANDROID_ABI} STREQUAL "x86")
@@ -29,30 +40,7 @@ set(ENABLE_TGVOIP yes)
 #endif()
 set(USE_WEBP yes)
 
-if (${ANDROID_ABI} STREQUAL "x86_64" OR ${ANDROID_ABI} STREQUAL "arm64-v8a")
-  set(FFMPEG_ABI ${ANDROID_ABI})
-  if (${TGX_FLAVOR} MATCHES "legacy")
-    message(FATAL_ERROR "Invalid combination: ${TGX_FLAVOR} ${ANDROID_ABI}")
-  endif()
-elseif(${ANDROID_ABI} STREQUAL "x86")
-  set(FFMPEG_ABI "i686")
-elseif(${ANDROID_ABI} STREQUAL "armeabi-v7a")
-  set(FFMPEG_ABI "armv7-a")
-else()
-  message(FATAL_ERROR "Unknown abi: ${ANDROID_ABI}")
-endif()
-set(FFMPEG_SRC_DIR "${THIRDPARTY_DIR}/ffmpeg")
-set(FFMPEG_DIR "${FFMPEG_SRC_DIR}/build/${TGX_FLAVOR}/${FFMPEG_ABI}")
-set(FFMPEG_LIBS
-  swresample
-  avformat
-  swscale
-  avcodec
-  avfilter
-  avutil
-)
-
-set(VPX_DIR "${THIRDPARTY_DIR}/libvpx/build/${TGX_FLAVOR}/${FFMPEG_ABI}")
+set(VPX_DIR "${LIBVPX_DIR}/${ANDROID_ABI}")
 set(VPX_LIB_PATH "${VPX_DIR}/lib/libvpx.a")
 
 # == Constants ==
@@ -84,30 +72,55 @@ add_compile_options(
   "$<$<CONFIG:Release,RelWithDebInfo,MinSizeRel>:-flto=full>"
 )
 
+file(REAL_PATH "${ANDROID_NDK}" ANDROID_NDK_REAL_PATH) # @MadeByLLM("opus-5.5")
+
+add_compile_options(
+  "$<$<COMPILE_LANGUAGE:C,CXX,ASM>:-ffile-prefix-map=${TGX_ROOT_DIR}/=>"
+  "$<$<COMPILE_LANGUAGE:C,CXX,ASM>:-ffile-prefix-map=${ANDROID_NDK}/=ndk/>"
+  "$<$<COMPILE_LANGUAGE:C,CXX,ASM>:-ffile-prefix-map=${ANDROID_NDK_REAL_PATH}/=ndk/>" # @MadeByLLM("opus-5.5")
+  "$<$<COMPILE_LANGUAGE:C,CXX,ASM>:-ffile-prefix-map=${CMAKE_BINARY_DIR}=.cxx>"
+)
+
+if (ANDROID_MIN_SDK_VERSION GREATER_EQUAL 30)
+  add_link_options(
+    "-Wl,--pack-dyn-relocs=android+relr"
+    "-Wl,--no-use-android-relr-tags"
+  )
+elseif (ANDROID_MIN_SDK_VERSION GREATER_EQUAL 28)
+  add_link_options(
+    "-Wl,--pack-dyn-relocs=android+relr"
+    "-Wl,--use-android-relr-tags"
+  )
+elseif (ANDROID_MIN_SDK_VERSION GREATER_EQUAL 23)
+  add_link_options(
+    "-Wl,--pack-dyn-relocs=android"
+  )
+endif()
+
 # == Libraries ==
 
 # tdjni
 
 add_library(crypto SHARED IMPORTED)
 set_target_properties(crypto PROPERTIES IMPORTED_LOCATION
-  ${TDLIB_DIR}/openssl/${ANDROID_ABI}/lib/libcryptox.so
+  ${TDLIB_DIR}/openssl/${ANDROID_NDK_REVISION}/${ANDROID_PLATFORM}/${ANDROID_ABI}/lib/libcryptox.so
 )
 add_library(ssl SHARED IMPORTED)
 set_target_properties(ssl PROPERTIES IMPORTED_LOCATION
-  ${TDLIB_DIR}/openssl/${ANDROID_ABI}/lib/libsslx.so
+  ${TDLIB_DIR}/openssl/${ANDROID_NDK_REVISION}/${ANDROID_PLATFORM}/${ANDROID_ABI}/lib/libsslx.so
 )
 if(${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.11.0")
   target_include_directories(crypto INTERFACE
-    ${TDLIB_DIR}/openssl/${ANDROID_ABI}/include
+    ${TDLIB_DIR}/openssl/${ANDROID_NDK_REVISION}/${ANDROID_PLATFORM}/${ANDROID_ABI}/include
   )
   target_include_directories(ssl INTERFACE
-    ${TDLIB_DIR}/openssl/${ANDROID_ABI}/include
+    ${TDLIB_DIR}/openssl/${ANDROID_NDK_REVISION}/${ANDROID_PLATFORM}/${ANDROID_ABI}/include
   )
 endif()
 
 add_library(tdjni SHARED IMPORTED)
 set_target_properties(tdjni PROPERTIES IMPORTED_LOCATION
-  ${TDLIB_DIR}/src/main/libs/${ANDROID_ABI}/libtdjni.so
+  ${TDLIB_DIR}/src/main/libs/${ANDROID_NDK_REVISION}/${ANDROID_PLATFORM}/${ANDROID_ABI}/libtdjni.so
 )
 target_link_libraries(tdjni INTERFACE crypto ssl)
 
@@ -129,18 +142,33 @@ add_subdirectory(
 include("${PROJECT_SOURCE_DIR}/BuildYuv.cmake")
 
 # vpx
+set(VPX_INCLUDE_DIR "${VPX_DIR}/include")
 add_library(vpx STATIC IMPORTED)
 set_target_properties(vpx PROPERTIES IMPORTED_LOCATION "${VPX_LIB_PATH}")
-target_include_directories(vpx INTERFACE "${VPX_DIR}/include")
+target_include_directories(vpx INTERFACE "${VPX_INCLUDE_DIR}")
+file(MAKE_DIRECTORY "${VPX_INCLUDE_DIR}")
+if(NOT EXISTS "${VPX_LIB_PATH}" OR NOT EXISTS "${VPX_INCLUDE_DIR}")
+  message(WARNING "Missing dependency: vpx. Run :app:buildLibvpx or Refresh Linked C++ Projects")
+endif()
 
 # opusfile
 include("${PROJECT_SOURCE_DIR}/BuildOpusfile.cmake")
 
-# rlottie
-include("${PROJECT_SOURCE_DIR}/BuildRlottie.cmake")
+# tlottie
+set(TLOTTIE_LIB_PATH "${TLOTTIE_DIR}/${ANDROID_ABI}/lib/libtlottie.a")
+add_library(tlottie STATIC IMPORTED)
+set_target_properties(tlottie PROPERTIES IMPORTED_LOCATION "${TLOTTIE_LIB_PATH}")
+target_include_directories(tlottie INTERFACE "${THIRDPARTY_DIR}/tlottie/include")
+if(NOT EXISTS "${TLOTTIE_LIB_PATH}")
+  message(WARNING
+    "Missing dependency: tlottie. Run :app:buildTlottie or Refresh Linked C++ Projects")
+endif()
 
 # lz4
 include("${PROJECT_SOURCE_DIR}/BuildLz4.cmake")
+
+# libprisma
+include("${PROJECT_SOURCE_DIR}/BuildPrisma.cmake")
 
 # webp
 if (${USE_WEBP})
@@ -149,12 +177,15 @@ endif()
 
 # ffmpeg
 foreach(FFMPEG_LIB IN LISTS FFMPEG_LIBS)
+  set(FFMPEG_LIB_PATH "${FFMPEG_DIR}/${ANDROID_ABI}/lib/lib${FFMPEG_LIB}.a")
+  set(FFMPEG_INCLUDE_DIR "${FFMPEG_DIR}/${ANDROID_ABI}/include")
   add_library(${FFMPEG_LIB} STATIC IMPORTED)
-  set_target_properties(${FFMPEG_LIB} PROPERTIES IMPORTED_LOCATION "${FFMPEG_DIR}/lib/lib${FFMPEG_LIB}.a")
-  target_include_directories(${FFMPEG_LIB} INTERFACE
-    "${FFMPEG_DIR}/include"
-    "${FFMPEG_SRC_DIR}"
-  )
+  set_target_properties(${FFMPEG_LIB} PROPERTIES IMPORTED_LOCATION "${FFMPEG_LIB_PATH}")
+  target_include_directories(${FFMPEG_LIB} INTERFACE "${FFMPEG_INCLUDE_DIR}")
+  file(MAKE_DIRECTORY "${FFMPEG_INCLUDE_DIR}")
+  if(NOT EXISTS "${FFMPEG_LIB_PATH}" OR NOT EXISTS "${FFMPEG_INCLUDE_DIR}")
+    message(WARNING "Missing dependency: ${FFMPEG_LIB}. Run :app:buildFfmpeg or Refresh Linked C++ Projects.")
+  endif()
 endforeach()
 
 # tgcalls
@@ -167,7 +198,7 @@ endif()
 # == Target ==
 
 set(NATIVE_LIB "tgxjni")
-add_library(${NATIVE_LIB} SHARED
+set(NATIVE_SOURCES
   log.cpp
 
   "${THIRDPARTY_DIR}/telegram_intro/IntroRenderer.c"
@@ -182,18 +213,31 @@ add_library(${NATIVE_LIB} SHARED
   image.c
   gif.cpp
   views.c
-
-  "${THIRDPARTY_DIR}/androidx-media/${TGX_FLAVOR}/opus_jni.cc"
-  "${THIRDPARTY_DIR}/androidx-media/${TGX_FLAVOR}/flac_jni.cc"
-  "${THIRDPARTY_DIR}/androidx-media/${TGX_FLAVOR}/flac_parser.cc"
-  "${THIRDPARTY_DIR}/androidx-media/${TGX_FLAVOR}/ffmpeg_jni.cc"
-  "${THIRDPARTY_DIR}/androidx-media/${TGX_FLAVOR}/vpx_jni.cc"
-
   bridge.cpp
+  syntax.cpp
+)
+if(EXISTS "${ANDROIDX_MEDIA_DIR}")
+  list(APPEND NATIVE_SOURCES
+    "${ANDROIDX_MEDIA_DIR}/opus_jni.cc"
+    "${ANDROIDX_MEDIA_DIR}/flac_jni.cc"
+    "${ANDROIDX_MEDIA_DIR}/flac_parser.cc"
+    "${ANDROIDX_MEDIA_DIR}/ffmpeg_jni.cc"
+    "${ANDROIDX_MEDIA_DIR}/vpx_jni.cc"
+  )
+else()
+  message(WARNING "./gradlew patchJetpackMedia was not run yet")
+endif()
+
+add_library(${NATIVE_LIB} SHARED ${NATIVE_SOURCES})
+# Types of libprisma have virtual functions in headers, so their users need RTTI too
+set_source_files_properties(syntax.cpp PROPERTIES
+  COMPILE_DEFINITIONS "PRISMA_GRAMMARS=\"${PRISMA_GRAMMARS}\""
+  COMPILE_OPTIONS "-frtti"
+  OBJECT_DEPENDS "${PRISMA_GRAMMARS}"
 )
 target_include_directories(${NATIVE_LIB} PRIVATE
   "${THIRDPARTY_DIR}/telegram_intro"
-  "${THIRDPARTY_DIR}/androidx-media/${TGX_FLAVOR}"
+  "${ANDROIDX_MEDIA_DIR}"
 
   "${THIRDPARTY_DIR}"
   .
@@ -234,8 +278,9 @@ target_link_libraries(${NATIVE_LIB}
   ogg
   opusfile
   opus
-  rlottie
+  tlottie
   lz4
+  prisma
 )
 if (${USE_WEBP})
   target_link_libraries(${NATIVE_LIB} webpdecoder_static)
@@ -254,6 +299,10 @@ target_link_libraries(${NATIVE_LIB}
   android
   cpufeatures
 )
+
+# Limits of sizes of decoders of animations, see gif.cpp
+target_link_options(${NATIVE_LIB} PRIVATE "-Wl,--wrap=vp9_alloc_context_buffers"
+  "-Wl,--wrap=av_image_check_size" "-Wl,--wrap=av_image_check_size2")
 
 target_link_options(${NATIVE_LIB} PRIVATE
   "$<$<CONFIG:Release,RelWithDebInfo,MinSizeRel>:-Wl,--gc-sections,--icf=safe>"

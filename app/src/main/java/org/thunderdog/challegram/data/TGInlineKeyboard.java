@@ -49,6 +49,7 @@ import org.thunderdog.challegram.theme.ColorId;
 import org.thunderdog.challegram.theme.Theme;
 import org.thunderdog.challegram.tool.Drawables;
 import org.thunderdog.challegram.tool.Fonts;
+import org.thunderdog.challegram.tool.Icons;
 import org.thunderdog.challegram.tool.Paints;
 import org.thunderdog.challegram.tool.Screen;
 import org.thunderdog.challegram.tool.UI;
@@ -67,6 +68,7 @@ import org.thunderdog.challegram.widget.ProgressComponent;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import me.vkryl.android.AnimatorUtils;
@@ -195,7 +197,7 @@ public class TGInlineKeyboard {
     this.isCustom = true;
     this.disableCustomPadding = disableCustomPadding;
 
-    Button button = new Button(this, parent, text.toUpperCase(), iconRes, maxWidth - getButtonPadding() * 2);
+    Button button = new Button(this, parent, text.toUpperCase(Locale.ROOT), iconRes, maxWidth - getButtonPadding() * 2);
     button.setClickListener(listener);
     button.setViewProvider(viewProvider);
 
@@ -757,7 +759,7 @@ public class TGInlineKeyboard {
       TdApi.FormattedText text = source;
       if (!whiteMode) {
         // Classic (non-bubble) keyboards use upper case; keep entity offsets valid
-        String upper = source.text.toUpperCase();
+        String upper = source.text.toUpperCase(Locale.ROOT);
         if (upper.length() == source.text.length()) {
           text = new TdApi.FormattedText(upper, source.entities);
         }
@@ -1009,7 +1011,7 @@ public class TGInlineKeyboard {
     }
 
     private String uppercase (String text) {
-      return useWhiteMode() ? text : text.toUpperCase();
+      return useWhiteMode() ? text : text.toUpperCase(Locale.ROOT);
     }
 
     public void set (TdApi.InlineKeyboardButton button, @Nullable TdApi.FormattedText richLabel, int maxWidth) {
@@ -1508,10 +1510,10 @@ public class TGInlineKeyboard {
               case TdApi.InlineKeyboardButtonTypeCallbackGame.CONSTRUCTOR:
               case TdApi.InlineKeyboardButtonTypeCallbackWithPassword.CONSTRUCTOR:
               case TdApi.InlineKeyboardButtonTypeCopyText.CONSTRUCTOR:
+              case TdApi.InlineKeyboardButtonTypeDisabled.CONSTRUCTOR:
               case TdApi.InlineKeyboardButtonTypeSwitchInline.CONSTRUCTOR:
               case TdApi.InlineKeyboardButtonTypeUser.CONSTRUCTOR:
               case TdApi.InlineKeyboardButtonTypeWebApp.CONSTRUCTOR:
-              case TdApi.InlineKeyboardButtonTypeDisabled.CONSTRUCTOR:
                 break;
               default: {
                 Td.assertInlineKeyboardButtonType_3a46e70a();
@@ -1922,9 +1924,10 @@ public class TGInlineKeyboard {
           context.context.tdlib().send(new TdApi.GetLoginUrlInfo(context.context.getChatId(), context.messageId, button.id), getLoginCallback(currentContextId, view, button, needVerify));
           break;
         }
-        case TdApi.InlineKeyboardButtonTypeDisabled.CONSTRUCTOR:
-          // Disabled button: a tap does nothing by definition
+        case TdApi.InlineKeyboardButtonTypeDisabled.CONSTRUCTOR: {
+          // Do nothing, button is disabled
           break;
+        }
         default: {
           Td.assertInlineKeyboardButtonType_3a46e70a();
           throw Td.unsupported(type);

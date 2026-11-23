@@ -39,8 +39,10 @@ import org.thunderdog.challegram.BaseActivity;
 import org.thunderdog.challegram.Log;
 import org.thunderdog.challegram.U;
 import org.thunderdog.challegram.tool.UI;
+import org.thunderdog.challegram.unsorted.AppContext;
 import org.thunderdog.challegram.unsorted.Settings;
 
+import tgx.flavor.Flavor;
 import tgx.td.Td;
 
 @SuppressWarnings("deprecation")
@@ -158,7 +160,7 @@ public class ProximityManager implements Settings.RaiseToSpeakListener, SensorEv
   private PowerManager.WakeLock proximityWakeLock;
 
   private boolean isWiredHeadsetOn;
-  private BroadcastReceiver receiver = new BroadcastReceiver() {
+  private final BroadcastReceiver receiver = new BroadcastReceiver() {
     @Override
     public void onReceive (Context context, Intent intent) {
       checkWiredHeadset();
@@ -196,7 +198,7 @@ public class ProximityManager implements Settings.RaiseToSpeakListener, SensorEv
       BluetoothAdapter btAdapter = am.isBluetoothScoAvailableOffCall() ? BluetoothAdapter.getDefaultAdapter() : null;
       IntentFilter intentFilter = newIntentFilter(btAdapter);
       try {
-        UI.getAppContext().registerReceiver(receiver, intentFilter);
+        Flavor.registerReceiver(AppContext.get(), receiver, intentFilter, false);
       } catch (Throwable t) {
         Log.e("Unable to register headset broadcast receiver", t);
       }
@@ -235,7 +237,7 @@ public class ProximityManager implements Settings.RaiseToSpeakListener, SensorEv
       return false;
     }
     try {
-      UI.getAppContext().unregisterReceiver(receiver);
+      AppContext.get().unregisterReceiver(receiver);
     } catch (Throwable t) {
       Log.e("Unable to unregister receiver");
     }
@@ -249,7 +251,7 @@ public class ProximityManager implements Settings.RaiseToSpeakListener, SensorEv
     boolean playingThroughEarpiece = playbackObject != null && (forceEarpiece || isNearToProximitySensor);
     if (this.playingThroughEarpiece != playingThroughEarpiece) {
       this.playingThroughEarpiece = playingThroughEarpiece;
-      AudioManager am = (AudioManager) UI.getAppContext().getSystemService(Context.AUDIO_SERVICE);
+      AudioManager am = (AudioManager) AppContext.get().getSystemService(Context.AUDIO_SERVICE);
       if (am != null) {
         if (playingThroughEarpiece) {
           // TODO: rework to setCommunicationDevice(AudioDeviceInfo) or clearCommunicationDevice()

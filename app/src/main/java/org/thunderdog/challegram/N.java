@@ -27,9 +27,6 @@ import androidx.media3.decoder.opus.OpusLibrary;
 import androidx.media3.decoder.vp9.VpxLibrary;
 
 import org.thunderdog.challegram.config.Config;
-import org.thunderdog.challegram.voip.VoIPController;
-import org.webrtc.SoftwareVideoEncoderFactory;
-import org.webrtc.VideoCodecInfo;
 
 import java.nio.ByteBuffer;
 import java.util.Locale;
@@ -76,7 +73,13 @@ public final class N {
 
   // gif.c
   public static final int DECODER_METADATA_ARRAY_SIZE = 5;
-  public static native long createDecoder (String path, long[] metadata, double startMediaTimestamp);
+  public static native long createDecoder (
+    String path,
+    long[] metadata,
+    double startMediaTimestamp,
+    // The longest side to play, 0 for animations
+    int maxSourceSize
+  );
   public static native long createLottieDecoder (String path, String jsonData, double[] metadata, int fitzpatrickType);
   public static native void getLottieSize (long ptr, int[] size);
   public static native void cancelLottieDecoder (long ptr);
@@ -136,14 +139,24 @@ public final class N {
     }
   }
 
-  public native static void onFatalError (String msg, int cause);
-  public native static void throwDirect (String msg);
+  // syntax.cpp
+  public native static int[] highlightCode (String code, String language);
+  public native static String getLanguageName (String language);
 
+  public native static void onFatalError (String msg, int cause);
+
+  // Unavailable in legacy flavor
   public static native String[] getTgCallsVersions ();
   public static native String toHexString (byte[] array);
 
+  private static boolean loaded;
+
   public static boolean init () {
-    return NLoader.loadLibraries();
+    if (!loaded) {
+      NLoader.loadLibraries();
+      loaded = true;
+    }
+    return true;
   }
 
   public static void setupLibraries () {
@@ -155,15 +168,15 @@ public final class N {
       FfmpegLibrary.setLibraries();
       if (BuildConfig.DEBUG) {
         android.util.Log.v("tgx", String.format(Locale.US,
-          "leveldb %s, libopus %s, libvpx %s, ffmpeg %s, tgvoip %s, tgcalls %s",
+          "leveldb %s, libopus %s, libvpx %s, ffmpeg %s, tgcalls %s",
           LevelDB.getVersion(),
           OpusLibrary.getVersion(),
           VpxLibrary.getVersion(),
           FfmpegLibrary.getVersion(),
-          VoIPController.getVersion(),
-          TextUtils.join("+", N.getTgCallsVersions())
+          BuildConfig.CALLS_AVAILABLE ?
+            TextUtils.join("+", N.getTgCallsVersions()) :
+            "disabled"
         ));
-        VideoCodecInfo[] softwareVideoCodecs = new SoftwareVideoEncoderFactory().getSupportedCodecs();
       }
     }
   }

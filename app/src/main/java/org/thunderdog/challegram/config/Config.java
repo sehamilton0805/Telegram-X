@@ -26,6 +26,8 @@ import org.thunderdog.challegram.R;
 import org.thunderdog.challegram.data.TD;
 import org.thunderdog.challegram.theme.ColorId;
 
+import java.util.Locale;
+
 public class Config {
   public static final boolean SUPPORT_SYSTEM_UNDERLINE_SPAN = true;
   public static final boolean FOREGROUND_SYNC_ALWAYS_ENABLED = true; // Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE;
@@ -44,8 +46,12 @@ public class Config {
   public static final boolean ADJUST_STATUS_BAR_TO_AVOID_DISPLAY_CUTOUT = false;
 
   public static final boolean NEED_SILENT_BROADCAST = false;
+  public static final boolean NEED_FLUSH_NOTIFICATION_DATA = false;
 
   public static final boolean SHOW_EMOJI_TONE_PICKER_ALWAYS = true;
+  // Flags, e.g. 🇺🇳, are strong left-to-right characters for the bidirectional algorithm, as in
+  // TextView; true makes them neutral like other emoji of Text
+  public static final boolean FORCE_NEUTRAL_FLAG_DIRECTION = false;
 
   public static final String ICONS_BUILTIN_ID = "material-baseline";
 
@@ -54,6 +60,27 @@ public class Config {
 
   public static final boolean WAIT_ANIMATIONS_BEFORE_START_VIDEO = true;
 
+  // Code blocks in messages wrap their lines, except long ones, instead of the setting of wrapping
+  public static final boolean AUTOMATIC_CODE_WRAPPING = true;
+  // A code block is long when wrapped it would take more than this percent of the height of the
+  // list of messages without the keyboard
+  public static final int CODE_BLOCK_MAX_WRAPPED_HEIGHT_PERCENT = 65;
+  // Wrapped line of code continues one space after the indent of its line, unless the indent takes
+  // most of the width
+  public static final boolean PRESERVE_INDENTS_IN_CODE_BLOCKS = true;
+  // Time of a bubble that ends with a code block is below the block, also where it would fit
+  public static final boolean CODE_BLOCK_TIME_BELOW = true;
+  // A switch keeps in place the line at the edge of the list when this share of it is seen,
+  // otherwise the next one
+  public static final float BLOCK_SWITCH_ANCHOR_MIN_VISIBLE = 0.45f;
+  // Lines of the layout that a collapsed expandable quote shows, the last of them under its fade; a
+  // quote of fewer than two lines more is shown whole, so that a collapse hides at least two lines
+  public static final int EXPANDABLE_QUOTE_COLLAPSED_LINE_COUNT = 4;
+  // A return to the message that a link to another message was followed from, e.g. by the button
+  // to the end of the chat, puts it where it was with its blocks as they were, e.g. an expanded
+  // quote; otherwise in the middle of the list, as the history shows it again
+  public static final boolean RETURN_TO_MESSAGE_STATE = true;
+
   // Allow stretch bounce in places where the glow looks ugly
   public static final boolean HAS_NICE_OVER_SCROLL_EFFECT = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S;
 
@@ -61,6 +88,15 @@ public class Config {
   // This affects all rotated videos (which even Telegram for iOS produces too).
   // The only way around for the sender is to transcode video fully even when there's no need at all.
   public static final boolean TRANSCODE_ROTATED_VIDEOS_FOR_IOS_CLIENT = true;
+
+  public static final boolean ENABLE_TEST_HOOKS = BuildConfig.TEST_HOOKS_ENABLED;
+
+  // How often at most a chat of the chat list layouts changes of its last message and unread count
+  public static final long CHAT_CHANGES_INTERVAL_MS = 100;
+
+  public static final boolean ENABLE_DELETE_CALL_HISTORY = BuildConfig.DEBUG;
+
+  public static final boolean DEBUG_TDLIB_REFERENCES = false;
 
   private static Boolean hasWebpSupport;
   public static boolean useBundledWebp () {
@@ -84,6 +120,7 @@ public class Config {
 
   public static final boolean NOTIFICATION_AUTO_CANCEL = true;
   public static final boolean NOTIFICATION_AUTO_CANCEL_SPECIFIC = true;
+  public static final boolean REUSE_NOTIFICATION_ICONS = true;
   public static final int MAX_RUNNING_TDLIBS = 5;
 
   public static final boolean NEED_LANGUAGE_WORKAROUND = false;
@@ -181,6 +218,8 @@ public class Config {
   public static final boolean USE_CRASHLYTICS = false;
 
   public static final boolean CALL_FROM_PREVIEW = false;
+  // Android 10 and older: the buttons of a call on the passcode above the keyboard of a password
+  public static final boolean CALL_BUTTONS_ABOVE_KEYBOARD = true;
 
   public static final boolean USE_GROUP_NAMES = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O;
 
@@ -204,6 +243,7 @@ public class Config {
   public static final boolean EXPLICIT_DICE_AVAILABLE = false;
 
   public static final boolean FOREGROUND_SERVICE_DEMO = false;
+  public static final boolean FOREGROUND_CONTACTS_SYNC_DEMO = false;
   public static final boolean TEST_SYNC_CONTACTS_PROMPT = false;
 
   public static boolean useCloudPlayback (TdApi.Message playPauseFile) {
@@ -253,7 +293,9 @@ public class Config {
 
   public static final boolean SHOW_COPY_REPORT_DETAILS_IN_SETTINGS = BuildConfig.EXPERIMENTAL;
 
-  public static final boolean FORCE_DISABLE_NOTIFICATIONS = BuildConfig.EXPERIMENTAL && !BuildConfig.DEBUG;
+  public static final boolean FORCE_DISABLE_NOTIFICATIONS =
+    BuildConfig.EXPERIMENTAL && !BuildConfig.DEBUG && !ENABLE_TEST_HOOKS &&
+    !BuildConfig.FIREBASE_MESSAGING_ENABLED;
 
   public static final int MINIMUM_CALL_CONTACTS_SUGGESTIONS = 3;
 
@@ -287,7 +329,7 @@ public class Config {
   public static final boolean TEST_CHAT_COUNTERS = false;
 
   public static boolean isThemeDoc (TdApi.Document doc) {
-    return doc != null && doc.fileName != null && doc.fileName.toLowerCase().endsWith("." + BuildConfig.THEME_FILE_EXTENSION);
+    return doc != null && doc.fileName != null && doc.fileName.toLowerCase(Locale.ROOT).endsWith("." + BuildConfig.THEME_FILE_EXTENSION);
   }
 
   public static final boolean DISABLE_PASSWORD_INVISIBILITY = true;
@@ -323,9 +365,6 @@ public class Config {
   public static final boolean REQUIRE_FIREBASE_SERVICES_FOR_SAFETYNET = false;
 
   public static final boolean USE_INPUT_VIEW_CLIPPING_FIX = false;
-
-  public static final int VOIP_CONNECTION_MIN_LAYER = 65;
-  public static final boolean FORCE_DIRECT_TGVOIP = false;
 
   public static final boolean ALLOW_SPONSORED_MESSAGE_LINK_COPY = true;
   public static final boolean PROTECT_ANONYMOUS_VOTING = false;

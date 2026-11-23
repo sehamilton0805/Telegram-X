@@ -148,12 +148,47 @@ public class FormattedText {
       }
       return new FormattedText(text, entities);
     }
-    List<TextEntity> newEntities = new ArrayList<>();
-    Collections.addAll(newEntities, entities);
-    for (Highlight.Part part : highlight.parts) {
-      addHighlight(newEntities, part, highlight.getColorSet());
+    if (!isInOrder(entities, highlight.parts)) {
+      List<TextEntity> newEntities = new ArrayList<>();
+      Collections.addAll(newEntities, entities);
+      for (Highlight.Part part : highlight.parts) {
+        addHighlight(newEntities, part, highlight.getColorSet());
+      }
+      return new FormattedText(text, newEntities.toArray(new TextEntity[0]));
     }
-    return new FormattedText(text, newEntities.toArray(new TextEntity[0]));
+    // Parts and entities go by the text, so entities that end before a part stay as they are
+    final List<TextEntity> result = new ArrayList<>(entities.length + highlight.parts.size());
+    final List<TextEntity> window = new ArrayList<>();
+    int next = 0;
+    for (Highlight.Part part : highlight.parts) {
+      while (next < entities.length && entities[next].start <= part.end) {
+        window.add(entities[next++]);
+      }
+      int passed = 0;
+      while (passed < window.size() && window.get(passed).end < part.start) {
+        passed++;
+      }
+      result.addAll(window.subList(0, passed));
+      window.subList(0, passed).clear();
+      addHighlight(window, part, highlight.getColorSet());
+    }
+    result.addAll(window);
+    result.addAll(Arrays.asList(entities).subList(next, entities.length));
+    return new FormattedText(text, result.toArray(new TextEntity[0]));
+  }
+
+  private static boolean isInOrder (TextEntity[] entities, List<Highlight.Part> parts) {
+    for (int i = 1; i < entities.length; i++) {
+      if (entities[i].start < entities[i - 1].start) {
+        return false;
+      }
+    }
+    for (int i = 1; i < parts.size(); i++) {
+      if (parts.get(i).start < parts.get(i - 1).end) {
+        return false;
+      }
+    }
+    return true;
   }
 
   private void addHighlight (List<TextEntity> out, Highlight.Part part, @NonNull TextColorSet highlightColorSet) {
@@ -401,7 +436,12 @@ public class FormattedText {
 
     return new FormattedText(out.toString(), parsed);
   }
+
   private static void parseRichText (ViewController<?> context, TdApi.RichText in, StringBuilder out, ArrayList<TextEntityCustom> entities, int[] offset, int flags, int linkOffset, int[] linkLength, int linkType, String link, boolean linkCached, @Nullable String referenceAnchorName, String copyLink, @Nullable TdlibUi.UrlOpenParameters openParameters) {
+    parseRichText(context, in, out, entities, offset, flags, linkOffset, linkLength, linkType, link, linkCached, referenceAnchorName, copyLink, openParameters, null);
+  }
+
+  private static void parseRichText (ViewController<?> context, TdApi.RichText in, StringBuilder out, ArrayList<TextEntityCustom> entities, int[] offset, int flags, int linkOffset, int[] linkLength, int linkType, String link, boolean linkCached, @Nullable String referenceAnchorName, String copyLink, @Nullable TdlibUi.UrlOpenParameters openParameters, TdApi.InlineButton inlineButton) {
     switch (in.getConstructor()) {
       case TdApi.RichTextPlain.CONSTRUCTOR: {
         final String text = ((TdApi.RichTextPlain) in).text;
@@ -411,6 +451,7 @@ public class FormattedText {
             .setReferenceAnchorName(referenceAnchorName).setCopyLink(copyLink);
           if (linkType != TextEntityCustom.LINK_TYPE_NONE) {
             custom.setLink(linkOffset, linkLength, linkType, link, linkCached);
+            custom.setButton(inlineButton);
             linkLength[0] += text.length();
           }
           entities.add(custom);
@@ -438,6 +479,11 @@ public class FormattedText {
           custom.setLink(linkOffset, linkLength, linkType, link, linkCached);
         }
         entities.add(custom);
+        break;
+      }
+      case TdApi.RichTextButton.CONSTRUCTOR: {
+        TdApi.InlineButton button = ((TdApi.RichTextButton) in).button;
+        parseRichText(context, button.text, out, entities, offset, flags | TextEntityCustom.FLAG_CLICKABLE, linkOffset, new int[1], TextEntityCustom.LINK_TYPE_BUTTON, null, true, referenceAnchorName, null, new TdlibUi.UrlOpenParameters(openParameters), button);
         break;
       }
       case TdApi.RichTextDiff.CONSTRUCTOR: {
@@ -515,6 +561,11 @@ public class FormattedText {
         parseRichText(context, bankCardNumber.text, out, entities, offset, flags | TextEntityCustom.FLAG_CLICKABLE, linkOffset, new int[1], TextEntityCustom.LINK_TYPE_BANK_CARD_NUMBER, bankCardNumber.bankCardNumber, linkCached, referenceAnchorName, null, openParameters);
         break;
       }
+      case TdApi.RichTextTonAddress.CONSTRUCTOR: {
+        TdApi.RichTextTonAddress tonAddress = (TdApi.RichTextTonAddress) in;
+        parseRichText(context, tonAddress.text, out, entities, offset, flags | TextEntityCustom.FLAG_CLICKABLE, linkOffset, new int[1], TextEntityCustom.LINK_TYPE_TON_ADDRESS, tonAddress.address, linkCached, referenceAnchorName, null, openParameters);
+        break;
+      }
       case TdApi.RichTextBotCommand.CONSTRUCTOR: {
         TdApi.RichTextBotCommand botCommand = (TdApi.RichTextBotCommand) in;
         parseRichText(context, botCommand.text, out, entities, offset, flags | TextEntityCustom.FLAG_CLICKABLE, linkOffset, new int[1], TextEntityCustom.LINK_TYPE_BOT_COMMAND, botCommand.botCommand, linkCached, referenceAnchorName, null, openParameters);
@@ -572,14 +623,8 @@ public class FormattedText {
         }
         break;
       }
-      case TdApi.RichTextButton.CONSTRUCTOR: {
-        // No dedicated click-through UI for buttons embedded in article rich
-        // text yet; render the button's own label inline rather than crash
-        parseRichText(context, ((TdApi.RichTextButton) in).button.text, out, entities, offset, flags, linkOffset, linkLength, linkType, link, linkCached, referenceAnchorName, copyLink, openParameters);
-        break;
-      }
       default: {
-        Td.assertRichText_caec3729();
+        Td.assertRichText_801eae96();
         throw Td.unsupported(in);
       }
     }

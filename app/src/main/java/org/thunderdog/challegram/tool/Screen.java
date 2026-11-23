@@ -22,6 +22,7 @@ import android.os.Build;
 import android.util.DisplayMetrics;
 import android.util.TypedValue;
 import android.view.Display;
+import android.view.View;
 import android.view.ViewConfiguration;
 import android.view.WindowManager;
 
@@ -144,11 +145,15 @@ public class Screen {
     BaseActivity context = UI.getUiContext();
     if (context != null) {
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-        if (context.isInMultiWindowMode()) {
-          return context.getWindow().getDecorView().getMeasuredHeight();
+        View decorView = context.isInMultiWindowMode() ? context.getWindow().peekDecorView() : null;
+        if (decorView != null) {
+          return decorView.getMeasuredHeight();
         }
       }
-      return context.getContentView().getMeasuredHeight();
+      View contentView = context.getContentView();
+      if (contentView != null) {
+        return contentView.getMeasuredHeight();
+      }
     }
     return UI.getContext().getResources().getDisplayMetrics().heightPixels;
   }
@@ -242,6 +247,8 @@ public class Screen {
 
   private static int navigationBarHeight;
 
+  @Deprecated
+  @SuppressWarnings({"DiscouragedApi", "InternalInsetResource"})
   public static int getNavigationBarHeight () {
     if (navigationBarHeight != 0) {
       return navigationBarHeight;
@@ -256,6 +263,7 @@ public class Screen {
   private static int navigationBarFrameHeight;
 
   @Deprecated
+  @SuppressWarnings("DiscouragedApi")
   public static int getNavigationBarFrameHeight () {
     if (navigationBarFrameHeight != 0) {
       return navigationBarFrameHeight;
@@ -277,6 +285,7 @@ public class Screen {
     return context.isKeyboardVisible() && isGesturalNavigationEnabled(UI.getResources()) && getNavigationBarHeight() > 0;
   }
 
+  @SuppressWarnings("DiscouragedApi")
   public static boolean isGesturalNavigationEnabled (Resources resources) {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
       return false;
@@ -322,6 +331,8 @@ public class Screen {
       listeners.remove(listener);
   }
 
+  @SuppressWarnings({"DiscouragedApi", "InternalInsetResource"})
+  @Deprecated
   public static int getStatusBarHeight () {
     if (__statusBarHeight != null) {
       return __statusBarHeight;

@@ -48,6 +48,7 @@ import org.thunderdog.challegram.tool.Paints;
 import org.thunderdog.challegram.tool.Screen;
 import org.thunderdog.challegram.tool.UI;
 import org.thunderdog.challegram.unsorted.Settings;
+import org.thunderdog.challegram.util.text.BlockSwitches;
 import org.thunderdog.challegram.util.text.Text;
 import org.thunderdog.challegram.util.text.TextColorSet;
 import org.thunderdog.challegram.util.text.TextStyleProvider;
@@ -116,7 +117,7 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
   // their order: folding one block must not move the state of the others.
   // Both survive a rebuild of the parts
   private final java.util.Set<TdApi.PageBlockDetails> toggledDetails = Collections.newSetFromMap(new java.util.IdentityHashMap<TdApi.PageBlockDetails, Boolean>());
-  private final java.util.IdentityHashMap<TdApi.PageBlock, HashSet<Integer>> expandedQuotes = new java.util.IdentityHashMap<>();
+  private final java.util.IdentityHashMap<TdApi.PageBlock, BlockSwitches> quoteSwitches = new java.util.IdentityHashMap<>();
   // Where the tables and carousels were scrolled to, carried over a rebuild
   private final java.util.IdentityHashMap<TdApi.PageBlock, Float> savedScrolls = new java.util.IdentityHashMap<>();
   // The message has blocks the bubble shows only as a line of text
@@ -880,7 +881,7 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
       wrapper.addTextFlags(textFlags);
     }
     if (textRunAnchor != null && hasExpandableQuote(text)) {
-      wrapper.setQuoteExpandDelegate(new QuoteExpander(textRunAnchor));
+      wrapper.setBlockSwitches(quoteSwitchesFor(textRunAnchor));
     }
     TextPart part = new TextPart(wrapper);
     final BlockContext context = blockContext;
@@ -905,38 +906,23 @@ public class TGMessageRich extends TGMessage implements MediaWrapper.OnClickList
     return false;
   }
 
-  // Expandable quotes start folded to three lines and unfold on a tap. The
-  // text never changes its own layout: the state is kept here, under the
-  // first block of the text run and the quote inside it, and the parts are
-  // built anew
-  private final class QuoteExpander implements Text.QuoteExpandDelegate {
-    private final TdApi.PageBlock anchor;
-
-    QuoteExpander (TdApi.PageBlock anchor) {
-      this.anchor = anchor;
+  // Expandable quotes start folded and unfold on a tap inside the text itself
+  // (BlockSwitches): the message only follows the size of the text while it
+  // changes. The switches are kept under the first block of the text run, so
+  // that the choice of the user survives a rebuild of the parts
+  private BlockSwitches quoteSwitchesFor (TdApi.PageBlock anchor) {
+    BlockSwitches switches = quoteSwitches.get(anchor);
+    if (switches == null) {
+      switches = new BlockSwitches(changedText -> onQuoteSizeChanged());
+      quoteSwitches.put(anchor, switches);
     }
+    return switches;
+  }
 
-    @Override
-    public boolean isQuoteExpanded (Text text, int quoteId) {
-      HashSet<Integer> expanded = expandedQuotes.get(anchor);
-      return expanded != null && expanded.contains(quoteId);
-    }
-
-    @Override
-    public void onQuoteExpandToggle (View view, Text text, int quoteId, boolean expand) {
-      HashSet<Integer> expanded = expandedQuotes.get(anchor);
-      if (expand) {
-        if (expanded == null) {
-          expanded = new HashSet<>();
-          expandedQuotes.put(anchor, expanded);
-        }
-        expanded.add(quoteId);
-      } else if (expanded != null) {
-        expanded.remove(quoteId);
-      }
-      // After the touch that caused it: the text handling it is about to go
-      runOnUiThreadOptional(TGMessageRich.this::rebuildParts);
-    }
+  private void onQuoteSizeChanged () {
+    final int keyboardWidth = getInlineKeyboardLayoutWidth();
+    rebuildAndUpdateContent();
+    rebuildInlineKeyboardIfWidthChanged(keyboardWidth);
   }
 
   private void toggleDetails (TdApi.PageBlockDetails details) {

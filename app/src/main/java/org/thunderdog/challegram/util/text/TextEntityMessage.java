@@ -14,7 +14,6 @@
  */
 package org.thunderdog.challegram.util.text;
 
-import android.net.Uri;
 import android.text.Spannable;
 import android.text.SpannableStringBuilder;
 import android.text.style.ClickableSpan;
@@ -32,6 +31,8 @@ import org.thunderdog.challegram.navigation.ViewController;
 import org.thunderdog.challegram.telegram.Tdlib;
 import org.thunderdog.challegram.telegram.TdlibContext;
 import org.thunderdog.challegram.telegram.TdlibUi;
+import org.thunderdog.challegram.theme.ColorId;
+import org.thunderdog.challegram.theme.Theme;
 import org.thunderdog.challegram.tool.Intents;
 import org.thunderdog.challegram.tool.Strings;
 import org.thunderdog.challegram.tool.UI;
@@ -61,8 +62,10 @@ public class TextEntityMessage extends TextEntity {
   private static final int FLAG_CUSTOM_EMOJI = 1 << 9;
 
   private final TdApi.TextEntity clickableEntity, spoilerEntity, emojiEntity, quoteEntity;
+  private final TdApi.TextEntity codeEntity;
   private int flags;
   private ClickableSpan onClickListener;
+  private @ColorId int syntaxColorId;
 
   private static boolean hasEntityType (List<TdApi.TextEntity> entities, @TdApi.TextEntityType.Constructors int typeConstructor) {
     if (entities != null) {
@@ -122,6 +125,7 @@ public class TextEntityMessage extends TextEntity {
     TdApi.TextEntity quoteEntity = isQuote(entity.type) ? entity : null;
     TdApi.TextEntity spoilerEntity = Td.isSpoiler(entity.type) ? entity : null;
     TdApi.TextEntity emojiEntity = Td.isCustomEmoji(entity.type) ? entity : null;
+    this.codeEntity = Td.isPre(entity.type) || Td.isPreCode(entity.type) ? entity : null;
     int flags = addFlags(entity.type);
     if (parentEntities != null) {
       for (int i = parentEntities.size() - 1; i >= 0; i--) {
@@ -154,11 +158,24 @@ public class TextEntityMessage extends TextEntity {
     this.flags = flags;
   }
 
-  private TextEntityMessage (@Nullable Tdlib tdlib, boolean needFakeBold, int offset, int end, TdApi.TextEntity clickableEntity, TdApi.TextEntity spoilerEntity, TdApi.TextEntity emojiEntity, TdApi.TextEntity quoteEntity, int flags, @Nullable TdlibUi.UrlOpenParameters openParameters) {
+  private TextEntityMessage (
+    @Nullable Tdlib tdlib,
+    boolean needFakeBold,
+    int offset,
+    int end,
+    TdApi.TextEntity clickableEntity,
+    TdApi.TextEntity spoilerEntity,
+    TdApi.TextEntity emojiEntity,
+    TdApi.TextEntity quoteEntity,
+    TdApi.TextEntity codeEntity,
+    int flags,
+    @Nullable TdlibUi.UrlOpenParameters openParameters
+  ) {
     super(tdlib, offset, end, needFakeBold, openParameters);
     this.clickableEntity = clickableEntity;
     this.spoilerEntity = spoilerEntity;
     this.quoteEntity = quoteEntity;
+    this.codeEntity = codeEntity;
     this.emojiEntity = emojiEntity;
     this.flags = flags;
   }
@@ -188,7 +205,19 @@ public class TextEntityMessage extends TextEntity {
 
   @Override
   public TextEntity createCopy () {
-    TextEntityMessage copy = new TextEntityMessage(tdlib, needFakeBold, start, end, clickableEntity, spoilerEntity, emojiEntity, quoteEntity, flags, openParameters);
+    TextEntityMessage copy = new TextEntityMessage(
+      tdlib,
+      needFakeBold,
+      start,
+      end,
+      clickableEntity,
+      spoilerEntity,
+      emojiEntity,
+      quoteEntity,
+      codeEntity,
+      flags,
+      openParameters
+    );
     if (customColorSet != null) {
       copy.setCustomColorSet(customColorSet);
     }
@@ -198,7 +227,27 @@ public class TextEntityMessage extends TextEntity {
     if (BitwiseUtils.hasFlag(flags, FLAG_BOLD) && !BitwiseUtils.hasFlag(copy.flags, FLAG_BOLD)) {
       copy.makeBold(needFakeBold);
     }
+    copy.syntaxColorId = syntaxColorId;
     return copy;
+  }
+
+  TextEntityMessage createSyntaxToken (
+    int start,
+    int end,
+    @ColorId int colorId,
+    boolean isBold,
+    boolean isItalic
+  ) {
+    TextEntityMessage token = (TextEntityMessage) createCopy();
+    token.setStartEnd(start, end);
+    token.syntaxColorId = colorId;
+    if (isBold) {
+      token.flags |= FLAG_BOLD;
+    }
+    if (isItalic) {
+      token.flags |= FLAG_ITALIC;
+    }
+    return token;
   }
 
   private TextColorSetOverride monospaceColorSet;
@@ -211,6 +260,11 @@ public class TextEntityMessage extends TextEntity {
     if (isMonospace()) {
       if (monospaceColorSet == null || monospaceColorSet.originalColorSet() != defaultColorSet) {
         monospaceColorSet = new TextColorSetOverride(defaultColorSet) {
+          @Override
+          public int defaultTextColor () {
+            return syntaxColorId != 0 ? Theme.getColor(syntaxColorId) : super.defaultTextColor();
+          }
+
           @Override
           public int clickableTextColor (boolean isPressed) {
             return isPressed ? super.clickableTextColor(true) : defaultTextColor();
@@ -256,39 +310,37 @@ public class TextEntityMessage extends TextEntity {
   }
 
   public static boolean isClickable (TdApi.TextEntityType type) {
-    switch (type.getConstructor()) {
-      case TdApi.TextEntityTypeEmailAddress.CONSTRUCTOR:
-      case TdApi.TextEntityTypePhoneNumber.CONSTRUCTOR:
-      case TdApi.TextEntityTypeBankCardNumber.CONSTRUCTOR:
-      case TdApi.TextEntityTypeUrl.CONSTRUCTOR:
-      case TdApi.TextEntityTypeTextUrl.CONSTRUCTOR:
-      case TdApi.TextEntityTypeDateTime.CONSTRUCTOR:
-      case TdApi.TextEntityTypeBotCommand.CONSTRUCTOR:
-      case TdApi.TextEntityTypeHashtag.CONSTRUCTOR:
-      case TdApi.TextEntityTypeCashtag.CONSTRUCTOR:
-      case TdApi.TextEntityTypeMention.CONSTRUCTOR:
-      case TdApi.TextEntityTypeMentionName.CONSTRUCTOR:
-
-      case TdApi.TextEntityTypeCode.CONSTRUCTOR:
-      case TdApi.TextEntityTypePreCode.CONSTRUCTOR:
-      case TdApi.TextEntityTypePre.CONSTRUCTOR: {
-        return true;
-      }
-      case TdApi.TextEntityTypeMediaTimestamp.CONSTRUCTOR: // TODO
-      case TdApi.TextEntityTypeBlockQuote.CONSTRUCTOR:
-      case TdApi.TextEntityTypeExpandableBlockQuote.CONSTRUCTOR:
-      case TdApi.TextEntityTypeBold.CONSTRUCTOR:
-      case TdApi.TextEntityTypeCustomEmoji.CONSTRUCTOR:
-      case TdApi.TextEntityTypeItalic.CONSTRUCTOR:
-      case TdApi.TextEntityTypeSpoiler.CONSTRUCTOR:
-      case TdApi.TextEntityTypeStrikethrough.CONSTRUCTOR:
-      case TdApi.TextEntityTypeUnderline.CONSTRUCTOR: {
-        return false;
-      }
-      default:
-        Td.assertTextEntityType_aefd8e69();
+    return switch (type.getConstructor()) {
+      case TdApi.TextEntityTypeEmailAddress.CONSTRUCTOR,
+           TdApi.TextEntityTypePhoneNumber.CONSTRUCTOR,
+           TdApi.TextEntityTypeBankCardNumber.CONSTRUCTOR,
+           TdApi.TextEntityTypeTonAddress.CONSTRUCTOR,
+           TdApi.TextEntityTypeUrl.CONSTRUCTOR,
+           TdApi.TextEntityTypeTextUrl.CONSTRUCTOR,
+           TdApi.TextEntityTypeDateTime.CONSTRUCTOR,
+           TdApi.TextEntityTypeBotCommand.CONSTRUCTOR,
+           TdApi.TextEntityTypeHashtag.CONSTRUCTOR,
+           TdApi.TextEntityTypeCashtag.CONSTRUCTOR,
+           TdApi.TextEntityTypeMention.CONSTRUCTOR,
+           TdApi.TextEntityTypeMentionName.CONSTRUCTOR,
+           TdApi.TextEntityTypeCode.CONSTRUCTOR,
+           TdApi.TextEntityTypePreCode.CONSTRUCTOR,
+           TdApi.TextEntityTypePre.CONSTRUCTOR ->
+        true;
+      case TdApi.TextEntityTypeMediaTimestamp.CONSTRUCTOR, // TODO
+           TdApi.TextEntityTypeBlockQuote.CONSTRUCTOR,
+           TdApi.TextEntityTypeExpandableBlockQuote.CONSTRUCTOR,
+           TdApi.TextEntityTypeBold.CONSTRUCTOR,
+           TdApi.TextEntityTypeCustomEmoji.CONSTRUCTOR,
+           TdApi.TextEntityTypeItalic.CONSTRUCTOR,
+           TdApi.TextEntityTypeSpoiler.CONSTRUCTOR,
+           TdApi.TextEntityTypeStrikethrough.CONSTRUCTOR,
+           TdApi.TextEntityTypeUnderline.CONSTRUCTOR -> false;
+      default -> {
+        Td.assertTextEntityType_b8214790();
         throw Td.unsupported(type);
-    }
+      }
+    };
   }
 
   private static boolean isEssential (TdApi.TextEntityType type) {
@@ -339,7 +391,8 @@ public class TextEntityMessage extends TextEntity {
     TextEntityMessage b = (TextEntityMessage) bRaw;
     switch (compareMode) {
       case COMPARE_MODE_NORMAL:
-        return this.flags == b.flags && this.customColorSet == b.customColorSet;
+        return this.flags == b.flags && this.customColorSet == b.customColorSet &&
+          this.syntaxColorId == b.syntaxColorId;
       case COMPARE_MODE_CLICK_HIGHLIGHT:
         return Td.equalsTo(this.clickableEntity, b.clickableEntity) && this.onClickListener == b.onClickListener;
       case COMPARE_MODE_SPOILER: {
@@ -426,12 +479,31 @@ public class TextEntityMessage extends TextEntity {
 
   @Override
   public int getQuoteId () {
-    return quoteEntity != null ? quoteEntity.offset : -1;
+    return quoteEntity != null ? quoteEntity.offset : codeEntity != null ? codeEntity.offset : -1;
+  }
+
+  @Override
+  public boolean isCodeBlock () {
+    return codeEntity != null && quoteEntity == null;
+  }
+
+  @Override
+  public @Nullable String getCodeLanguage () {
+    if (codeEntity != null && Td.isPreCode(codeEntity.type)) {
+      return ((TdApi.TextEntityTypePreCode) codeEntity.type).language;
+    }
+    return null;
   }
 
   @Override
   public boolean isQuote () {
     return quoteEntity != null;
+  }
+
+  @Override
+  public boolean isExpandableQuote () {
+    return quoteEntity != null &&
+      quoteEntity.type.getConstructor() == TdApi.TextEntityTypeExpandableBlockQuote.CONSTRUCTOR;
   }
 
   @Override
@@ -521,6 +593,15 @@ public class TextEntityMessage extends TextEntity {
         }
         break;
       }
+      case TdApi.TextEntityTypeTonAddress.CONSTRUCTOR: {
+        String tonAddress = Td.substring(text.getText(), clickableEntity);
+        if (callback == null || !callback.onTonAddressClick(tonAddress)) {
+          if (tdlib != null) {
+            tdlib.ui().openTonAddress(context, tonAddress);
+          }
+        }
+        break;
+      }
       case TdApi.TextEntityTypeHashtag.CONSTRUCTOR:
       case TdApi.TextEntityTypeCashtag.CONSTRUCTOR: {
         if (tdlib == null)
@@ -569,7 +650,7 @@ public class TextEntityMessage extends TextEntity {
         // Non-clickable
         break;
       default:
-        Td.assertTextEntityType_aefd8e69();
+        Td.assertTextEntityType_b8214790();
         throw Td.unsupported(clickableEntity.type);
     }
   }
@@ -629,12 +710,17 @@ public class TextEntityMessage extends TextEntity {
       case TdApi.TextEntityTypeCashtag.CONSTRUCTOR:
 
       case TdApi.TextEntityTypeBankCardNumber.CONSTRUCTOR:
+      case TdApi.TextEntityTypeTonAddress.CONSTRUCTOR:
       case TdApi.TextEntityTypeDateTime.CONSTRUCTOR:
 
       case TdApi.TextEntityTypeMention.CONSTRUCTOR:
       case TdApi.TextEntityTypeMentionName.CONSTRUCTOR: {
         ids.append(R.id.btn_openLink);
-        strings.append(Td.isBankCardNumber(clickableEntity.type) ? R.string.OpenInExternalApp : R.string.Open);
+        strings.append(
+          Td.isBankCardNumber(clickableEntity.type) || Td.isTonAddress(clickableEntity.type) ?
+            R.string.OpenInExternalApp :
+            R.string.Open
+        );
         icons.append(R.drawable.baseline_open_in_browser_24);
         break;
       }
@@ -661,7 +747,7 @@ public class TextEntityMessage extends TextEntity {
       }
 
       default: {
-        Td.assertTextEntityType_aefd8e69();
+        Td.assertTextEntityType_b8214790();
         throw Td.unsupported(clickableEntity.type);
       }
     }
@@ -708,6 +794,7 @@ public class TextEntityMessage extends TextEntity {
             message = R.string.CopiedCashtag;
             break;
           case TdApi.TextEntityTypeBlockQuote.CONSTRUCTOR:
+          case TdApi.TextEntityTypeTonAddress.CONSTRUCTOR:
           case TdApi.TextEntityTypeExpandableBlockQuote.CONSTRUCTOR:
           case TdApi.TextEntityTypePreCode.CONSTRUCTOR:
           case TdApi.TextEntityTypeCode.CONSTRUCTOR:
@@ -717,7 +804,7 @@ public class TextEntityMessage extends TextEntity {
             break;
           }
           default: {
-            Td.assertTextEntityType_aefd8e69();
+            Td.assertTextEntityType_b8214790();
             message = R.string.CopiedLink;
             break;
           }

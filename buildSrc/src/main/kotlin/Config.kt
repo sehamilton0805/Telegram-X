@@ -13,26 +13,29 @@
 
 // File with static configuration, that is meant to be adjusted only once
 
-import tgx.gradle.fatal
-import tgx.gradle.getLongOrThrow
-import tgx.gradle.getOrThrow
-import tgx.gradle.plugin.Keystore
+import tgx.gradle.*
+import java.io.File
 import java.util.*
 
 object Config {
   const val MIN_SDK_VERSION = 16
   const val MIN_SDK_VERSION_HUAWEI = 17
-  val JAVA_VERSION = org.gradle.api.JavaVersion.VERSION_21
+  val JAVA_VERSION = org.gradle.api.JavaVersion.VERSION_25
   val ANDROIDX_MEDIA_EXTENSIONS = arrayOf(
     "decoder_ffmpeg",
     "decoder_flac",
     "decoder_opus",
     "decoder_vp9"
   )
-  val SUPPORTED_ABI = arrayOf("armeabi-v7a", "arm64-v8a", "x86_64", "x86")
 
-  // FIXME(ndK): As of 16.08.2025, NDK team didn't release an update for r23's c++_shared.so with 16 KB ELF alignment
-  const val SHARED_STL = false
+  val FFMPEG_LIBS = arrayOf(
+    "swresample",
+    "avformat",
+    "swscale",
+    "avcodec",
+    "avfilter",
+    "avutil"
+  )
 }
 
 data class PullRequest (
@@ -51,7 +54,35 @@ data class PullRequest (
   )
 }
 
+data class BuildVersions(
+  val compileSdkVersion: Int,
+  val targetSdkVersion: Int,
+  val buildToolsVersion: String,
+  val legacyNdkVersion: String,
+  val primaryNdkVersion: String,
+  val rustVersion: String
+) {
+  constructor(version: Properties) : this(
+    compileSdkVersion =
+      version.getIntOrThrow("version.sdk_compile"),
+    targetSdkVersion =
+      version.getIntOrThrow("version.sdk_target"),
+    buildToolsVersion =
+      version.getOrThrow("version.build_tools"),
+    legacyNdkVersion =
+      version.getOrThrow("version.ndk_legacy"),
+    primaryNdkVersion =
+      version.getOrThrow("version.ndk_primary"),
+    rustVersion =
+      version.getOrThrow("version.rust")
+  )
+}
+
 data class ApplicationConfig(
+  val sdkDir: String,
+  val rustDir: String,
+  val msys2Dir: String,
+
   val applicationName: String,
   val applicationId: String,
   val extension: String,
@@ -62,15 +93,10 @@ data class ApplicationConfig(
 
   val isExperimentalBuild: Boolean,
   val isHuaweiBuild: Boolean,
+  val googleServicesFile: String?,
   val forceOptimize: Boolean,
   val doNotObfuscate: Boolean,
-
-  val compileSdkVersion: Int,
-  val targetSdkVersion: Int,
-  val buildToolsVersion: String,
-
-  val legacyNdkVersion: String,
-  val primaryNdkVersion: String,
+  val build: BuildVersions,
 
   val nativeLibraryVersion: String,
   val leveldbVersion: String,
@@ -90,52 +116,113 @@ data class ApplicationConfig(
   val outputFileNamePrefix: String,
   val creationDateMillis: Long,
 
-  val keystore: Keystore?
+  val keystorePropertiesPath: String?
 )
 
-class AbiVariant (val flavor: String, vararg val filters: String = arrayOf(), val displayName: String = filters[0]) {
-  init {
-    if (filters.isEmpty())
-      fatal("Empty filters passed")
-    for (filter in filters) {
-      if (!Config.SUPPORTED_ABI.contains(filter))
-        fatal("Unsupported abi filter: $filter")
-    }
-  }
-
-  val is64Bit: Boolean
-    get() {
-      for (filter in filters) {
-        if (filter != "arm64-v8a" && filter != "x86_64") {
-          return false
-        }
-      }
-      return true
-    }
-
-  val minSdk: Int
-    get() = if (is64Bit) {
-      21
-    } else {
-      16
-    }
+data class Keystore(
+  val file: File,
+  val password: String,
+  val keyAlias: String,
+  val keyPassword: String
+) {
+  constructor(configPath: String) : this(loadProperties(configPath))
+  constructor(file: File) : this(loadProperties(file))
+  constructor(config: org.jetbrains.kotlin.konan.properties.Properties) : this(
+    file = File(config.getOrThrow("keystore.file")),
+    password = config.getOrThrow("keystore.password"),
+    keyAlias = config.getOrThrow("key.alias"),
+    keyPassword = config.getOrThrow("key.password")
+  )
 }
 
-@Suppress("MemberVisibilityCanBePrivate")
-object Abi {
-  const val UNIVERSAL = 0
-  const val ARMEABI_V7A = 1
-  const val ARM64_V8A = 2
-  const val X86 = 3
-  const val X64 = 4
+enum class Abi(
+  val versionCode: Int
+) {
+  // do not change: multi-abi APKs intentionally share the same version code
+  UNIVERSAL(0),
+  ARM(0),
+  INTEL(0),
 
-  val VARIANTS = mapOf(
-    Pair(UNIVERSAL, AbiVariant("universal", displayName = "universal", filters = arrayOf("arm64-v8a", "armeabi-v7a"))),
-    Pair(ARMEABI_V7A, AbiVariant("arm32", "armeabi-v7a")),
-    Pair(ARM64_V8A, AbiVariant("arm64", "arm64-v8a")),
-    Pair(X86, AbiVariant("x86", "x86")),
-    Pair(X64, AbiVariant("x64", "x86_64", displayName = "x64"))
-  )
+  ARMEABI_V7A(1),
+  ARM64_V8A(2),
+  X86(3),
+  X64(4);
+
+  val isSingleAbi: Boolean
+    get() =
+      when (this) {
+        UNIVERSAL, ARM, INTEL -> false
+        else -> true
+      }
+
+  fun toDisplayName(): String =
+    name.lowercase().replace("_", "-")
+
+  companion object {
+    val FILTERS = listOf(
+      "arm64-v8a",
+      "armeabi-v7a",
+      "x86_64",
+      "x86"
+    )
+
+    fun toFilters(abi: String): List<String> =
+      if (abi.isEmpty() || abi == "all") {
+        FILTERS
+      } else {
+        val abiFilters = abi
+          .split(',')
+          .flatMap {
+            toFilters(fromFilter(it.trim()))
+          }
+        FILTERS.filter {
+          it in abiFilters
+        }
+      }
+
+    fun toFilters(abi: Abi): List<String> =
+      FILTERS.let { abiFilters ->
+        abiFilters.filter { abiFilter ->
+          when (abiFilter) {
+            "arm64-v8a" -> abi == ARM64_V8A || abi == ARM || abi == UNIVERSAL
+            "armeabi-v7a" -> abi == ARMEABI_V7A || abi == ARM || abi == UNIVERSAL
+            "x86_64" -> abi == X64 || abi == INTEL || abi == UNIVERSAL
+            "x86" -> abi == X86 || abi == INTEL || abi == UNIVERSAL
+            else -> {
+              fatal("Unknown abi argument: $abi")
+            }
+          }
+        }
+      }
+
+    fun fromFilters(abiFilters: List<String>): Abi =
+      if (abiFilters.isEmpty() || abiFilters.size > 1) {
+        when (abiFilters.size) {
+          2 if abiFilters.containsAll(listOf("arm64-v8a", "armeabi-v7a")) ->
+            ARM
+          2 if abiFilters.containsAll(listOf("x86", "x86_64")) ->
+            INTEL
+          else ->
+            UNIVERSAL
+        }
+      } else {
+        fromFilter(abiFilters[0])
+      }
+
+    fun fromFilter(abiFilter: String): Abi =
+      when (abiFilter) {
+        "arm32", "armeabi-v7a" -> ARMEABI_V7A
+        "arm64", "arm64-v8a" -> ARM64_V8A
+        "x86" -> X86
+        "x64", "x86_64" -> X64
+        "all", "universal" -> UNIVERSAL
+        "arm" -> ARM
+        "intel" -> INTEL
+        else -> {
+          fatal("Unknown abi filter: $abiFilter")
+        }
+      }
+  }
 }
 
 data class SdkVariant(
@@ -143,13 +230,40 @@ data class SdkVariant(
   val maxSdk: Int? = null,
   val flavor: String,
   val displayName: String? = flavor
-)
+) {
+  val isLatest: Boolean =
+    flavor == "latest"
+
+  val isNop: Boolean =
+    flavor == "nop"
+  val isMarshmallow: Boolean =
+    flavor == "marshmallow"
+  val isLollipop: Boolean =
+    flavor == "lollipop"
+  val isLegacy: Boolean =
+    flavor == "legacy"
+
+  val jetpackMediaFlavor: String =
+    flavor.takeIf { isLegacy || isLollipop } ?: "latest"
+
+  val usesLegacyNdk: Boolean =
+    isLegacy
+
+  fun supportsSdk(sdk: Int): Boolean =
+    (maxSdk ?: Int.MAX_VALUE) >= sdk
+
+  // ART uses baseline profiles starting with Android 7.0
+  val usesBaselineProfile: Boolean =
+    supportsSdk(24)
+}
 
 object Sdk {
   const val LEGACY = 0
   const val LOLLIPOP = 1
   const val MARSHMALLOW = 2
-  const val LATEST = 3
+  const val NOUGAT_OREO_PIE = 3
+  const val Q_R_S = 4
+  const val LATEST = 5
 
   val VARIANTS = mapOf(
     Pair(LEGACY, SdkVariant(
@@ -167,9 +281,21 @@ object Sdk {
       minSdk = 23,
       maxSdk = 23
     )),
+    Pair(NOUGAT_OREO_PIE, SdkVariant(
+      flavor = "nop",
+      minSdk = 24,
+      maxSdk = 28,
+      displayName = "nougatOreoPie"
+    )),
+    Pair(Q_R_S, SdkVariant(
+      flavor = "qrs",
+      minSdk = 29,
+      maxSdk = 32,
+      displayName = "QRS"
+    )),
     Pair(LATEST, SdkVariant(
       flavor = "latest",
-      minSdk = 24,
+      minSdk = 33,
       displayName = null
     ))
   )

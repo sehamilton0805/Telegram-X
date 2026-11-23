@@ -16,7 +16,6 @@ package org.thunderdog.challegram.tool;
 
 import android.animation.Animator;
 import android.animation.ValueAnimator;
-import android.annotation.TargetApi;
 import android.app.Dialog;
 import android.content.Context;
 import android.graphics.Bitmap;
@@ -44,6 +43,7 @@ import android.widget.TextView;
 
 import androidx.annotation.DrawableRes;
 import androidx.annotation.Nullable;
+import androidx.annotation.RequiresApi;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
@@ -61,6 +61,7 @@ import org.thunderdog.challegram.util.TextSelection;
 import org.thunderdog.challegram.util.WebViewHolder;
 import org.thunderdog.challegram.util.text.Text;
 import org.thunderdog.challegram.widget.AttachDelegate;
+import org.thunderdog.challegram.widget.DateTimeView;
 import org.thunderdog.challegram.widget.NoScrollTextView;
 
 import java.lang.reflect.Field;
@@ -70,6 +71,7 @@ import me.vkryl.android.AnimatorUtils;
 import me.vkryl.android.widget.FrameLayoutFix;
 import me.vkryl.core.BitwiseUtils;
 import me.vkryl.core.lambda.Destroyable;
+import me.vkryl.core.lambda.RunnableData;
 
 public class Views {
   public static void setClickable (View view) {
@@ -588,13 +590,13 @@ public class Views {
     }
   }
 
+  @SuppressWarnings({"DiscouragedPrivateApi", "JavaReflectionMemberAccess"})
   public static void setCursorDrawable (android.widget.EditText editText, @DrawableRes int res) {
     if (editText != null) {
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
         editText.setTextCursorDrawable(res);
       } else {
         try {
-          //noinspection JavaReflectionMemberAccess
           Field mCursorDrawableRes = TextView.class.getDeclaredField("mCursorDrawableRes");
           mCursorDrawableRes.setAccessible(true);
           mCursorDrawableRes.setInt(editText, res);
@@ -617,6 +619,7 @@ public class Views {
     return (e.getAction() != MotionEvent.ACTION_DOWN || (Views.isValid(view) && Views.isValid((View) view.getParent())));
   }
 
+  @SuppressWarnings("DiscouragedApi")
   public static View tryFindAndroidView (Context context, Dialog dialog, String name) {
     if (dialog == null)
       return null;
@@ -721,7 +724,7 @@ public class Views {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
       setSimpleStateListAnimator(view);
       view.setOutlineProvider(new android.view.ViewOutlineProvider() {
-        @TargetApi (Build.VERSION_CODES.LOLLIPOP)
+        @RequiresApi(Build.VERSION_CODES.LOLLIPOP)
         @Override
         public void getOutline (View view, android.graphics.Outline outline) {
           int p = Screen.dp(padding);
@@ -736,7 +739,7 @@ public class Views {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
       setSimpleStateListAnimator(view);
       view.setOutlineProvider(new android.view.ViewOutlineProvider() {
-        @TargetApi (Build.VERSION_CODES.LOLLIPOP)
+        @RequiresApi (Build.VERSION_CODES.LOLLIPOP)
         @Override
         public void getOutline (View view, android.graphics.Outline outline) {
           int p = Screen.dp(padding);
@@ -1112,6 +1115,47 @@ public class Views {
       return gravity < 0 ? Gravity.NO_GRAVITY : gravity;
     }
     return Gravity.NO_GRAVITY;
+  }
+
+  public static void updateRows (
+    RecyclerView recyclerView,
+    int start,
+    int end,
+    RunnableData<View> updateVisibleRow
+  ) {
+    // A change of what the rows from start to end show, without the change animations that
+    // notifyItemRangeChanged runs over rows on the screen: those are updated in their views, the
+    // others are bound again when they come back
+    RecyclerView.Adapter<?> adapter = recyclerView.getAdapter();
+    LinearLayoutManager manager = (LinearLayoutManager) recyclerView.getLayoutManager();
+    if (adapter == null || manager == null || start >= end) {
+      return;
+    }
+    final int first = manager.findFirstVisibleItemPosition();
+    final int last = manager.findLastVisibleItemPosition();
+    if (first == RecyclerView.NO_POSITION || last < start || first >= end) {
+      adapter.notifyItemRangeChanged(start, end - start);
+      return;
+    }
+    for (int i = Math.max(first, start); i <= Math.min(last, end - 1); i++) {
+      View view = manager.findViewByPosition(i);
+      if (view != null) {
+        updateVisibleRow.runWithData(view);
+        view.invalidate();
+      }
+    }
+    if (first > start) {
+      adapter.notifyItemRangeChanged(start, first - start);
+    }
+    if (last + 1 < end) {
+      adapter.notifyItemRangeChanged(last + 1, end - last - 1);
+    }
+  }
+
+  public static void updateRowTimes (View row) {
+    if (row instanceof DateTimeView) {
+      ((DateTimeView) row).onDateOrTimeChanged();
+    }
   }
 
   public static boolean isFocusedViewVisible (RecyclerView recyclerView, View view) {

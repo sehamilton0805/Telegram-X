@@ -82,4 +82,31 @@ public class TextColorSetOverride implements TextColorSet {
   public int quoteLineColor () {
     return colorSet.quoteLineColor();
   }
+
+  // Code blocks keep the colours of the wrapped set (those of the bubble)
+
+  @Override
+  public int codeBlockBackgroundColorId () {
+    return colorSet.codeBlockBackgroundColorId();
+  }
+
+  @Override
+  public int codeBlockHeaderColorId () {
+    return colorSet.codeBlockHeaderColorId();
+  }
+
+  @Override
+  public int codeBlockRippleColorId () {
+    return colorSet.codeBlockRippleColorId();
+  }
+
+  @Override
+  public int codeBlockLineColorId () {
+    return colorSet.codeBlockLineColorId();
+  }
+
+  @Override
+  public int codeBlockBarColorId () {
+    return colorSet.codeBlockBarColorId();
+  }
 }

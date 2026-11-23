@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
   <string name="language_continueInLanguage">Continue in English</string>
 
   <string name="Page1Title">Telegram X</string>
@@ -84,6 +84,7 @@
   <string name="format_fileSizeAndDescription">%2$s, %1$s</string>
   <string name="format_fileSizeAndExtension">%1$s %2$s</string>
   <string name="format_filesAndFolders">%1$s, %2$s</string>
+  <string name="format_conversationSettings">%1$s: %2$s</string>
   <string name="format_chatFoldersPositionAndStyle">%1$s, %2$s</string>
   <string name="format_contentAndModifyDate2">%1$s, %2$s</string>
   <string name="format_plus">+%1$d</string>
@@ -393,6 +394,7 @@
   <string name="ChatContentFile">File</string>
   <string name="ChatContentPhoto">Photo</string>
   <string name="ChatContentAnimation">GIF</string>
+  <string name="ChatContentWidget">Widget</string>
   <string name="ChatContentProximityM_one">%2$s is now within %1$s meter from %3$s</string>
   <string name="ChatContentProximityM_other">%2$s is now within %1$s meters from %3$s</string>
   <string name="ChatContentProximityKm_one">%2$s is now within %1$s kilometer from %3$s</string>
@@ -433,6 +435,8 @@
   <string name="ChatContentGroupLeft_outgoing">Left the group</string>
   <string name="ChatContentGroupJoin">Joined the group via invite link</string>
   <string name="ChatContentGroupJoin_outgoing">Joined the group via invite link</string>
+  <string name="ChatContentGroupJoinCommunity">Joined the group from the community</string>
+  <string name="ChatContentGroupJoinCommunity_outgoing">Joined the group from the community</string>
   <string name="ChatContentGroupAccept">Was accepted to the group</string>
   <string name="ChatContentGroupAccept_outgoing">Were accepted to the group</string>
   <string name="ChatContentGroupJoinPublic">Joined the group</string>
@@ -550,6 +554,7 @@
   <string name="CopiedLink">Link has been copied to the clipboard</string>
   <string name="CopiedLinkPrivate">Link has been copied to the clipboard. It works only for members of this chat.</string>
   <string name="CopiedText">Text has been copied to the clipboard</string>
+  <string name="CopiedCode">Code copied</string>
   <string name="CopiedDisplayName">Display name has been copied to the clipboard</string>
   <string name="CopiedColor">Color and its name have been copied to the clipboard</string>
   <string name="passcode_pattern_tooshort">Pattern should be at least 4 dots long</string>
@@ -659,6 +664,7 @@
   <string name="Link">Link</string>
   <string name="Copy">Copy</string>
   <string name="CopyText">Copy text</string>
+  <string name="CodeBlockTitle">Code</string>
   <string name="CopyCoordinates">Copy coordinates</string>
   <string name="CopiedCoordinates">Coordinates have been copied to the clipboard</string>
   <string name="CopyLink">Copy link</string>
@@ -759,6 +765,10 @@
   <string name="group_user_remove_self">You left the group</string>
   <string name="group_user_join_by_link">%1$s joined the group via invite link</string>
   <string name="group_user_join_by_link_self">You joined the group via invite link</string>
+  <string name="group_user_join_from_community">%1$s joined the group from the community</string>
+  <string name="group_user_join_from_community_self">You joined the group from the community</string>
+  <string name="group_user_join_from_community_name">%1$s joined the group from the community \"%2$s\"</string>
+  <string name="group_user_join_from_community_name_self">You joined the group from the community \"%2$s\"</string>
   <string name="group_user_join_by_link_with_approval">%1$s joined the group via invite link, approved by %2$s</string>
   <string name="group_user_join_by_link_self_with_approval">You joined the group via invite link, approved by %1$s</string>
   <string name="group_created">%1$s created the group "%2$s"</string>
@@ -1161,6 +1171,7 @@
   <string name="MessagePreview">Message Preview</string>
   <string name="Vibrate">Vibrate</string>
   <string name="VibrateDisabled">Disabled</string>
+  <string name="VibrateEnabled">Enabled</string>
   <string name="Sound">Sound</string>
   <string name="SoundDisabled">Disabled</string>
   <string name="InChatSound">In-Chat Sounds</string>
@@ -1212,25 +1223,46 @@
   <string name="ChatThemeDisabled_outgoing">You disabled the chat theme</string>
 
   <string name="YouGiftedPremium_one">You gifted %1$s month of Telegram Premium for %2$s</string>
-  <string name="YouGiftedPremium_other">You gifted %1$s months Telegram Premium for %2$s</string>
+  <string name="YouGiftedPremium_other">You gifted %1$s months of Telegram Premium for %2$s</string>
 
   <string name="YouGiftedPremiumTo_one">You gifted %3$s %1$s month of Telegram Premium for %2$s</string>
-  <string name="YouGiftedPremiumTo_other">You gifted %3$s %1$s months Telegram Premium for %2$s</string>
+  <string name="YouGiftedPremiumTo_other">You gifted %3$s %1$s months of Telegram Premium for %2$s</string>
 
   <string name="GiftedPremium_one">%2$s gifted you %1$s month of Telegram Premium for %3$s</string>
-  <string name="GiftedPremium_other">%2$s gifted you %1$s months Telegram Premium for %3$s</string>
+  <string name="GiftedPremium_other">%2$s gifted you %1$s months of Telegram Premium for %3$s</string>
 
   <string name="AnonymousGiftedPremium_one">Someone gifted you %1$s month of Telegram Premium for %2$s</string>
-  <string name="AnonymousGiftedPremium_other">Someone gifted you %1$s months Telegram Premium for %2$s</string>
+  <string name="AnonymousGiftedPremium_other">Someone gifted you %1$s months of Telegram Premium for %2$s</string>
+
+  <string name="YouGiftedPremiumDays_one">You gifted %1$s day of Telegram Premium for %2$s</string>
+  <string name="YouGiftedPremiumDays_other">You gifted %1$s days of Telegram Premium for %2$s</string>
+
+  <string name="YouGiftedPremiumDaysTo_one">You gifted %3$s %1$s day of Telegram Premium for %2$s</string>
+  <string name="YouGiftedPremiumDaysTo_other">You gifted %3$s %1$s days of Telegram Premium for %2$s</string>
+
+  <string name="GiftedPremiumDays_one">%2$s gifted you %1$s day of Telegram Premium for %3$s</string>
+  <string name="GiftedPremiumDays_other">%2$s gifted you %1$s days of Telegram Premium for %3$s</string>
+
+  <string name="AnonymousGiftedPremiumDays_one">Someone gifted you %1$s day of Telegram Premium for %2$s</string>
+  <string name="AnonymousGiftedPremiumDays_other">Someone gifted you %1$s days of Telegram Premium for %2$s</string>
 
   <string name="YouGiftedPremiumCode_one">You sent Gift Code for %1$s month of Telegram Premium</string>
   <string name="YouGiftedPremiumCode_other">You sent Gift Code for %1$s months of Telegram Premium</string>
 
   <string name="GiftedPremiumCode_one">%2$s sent you a Gift Code for %1$s month of Telegram Premium</string>
-  <string name="GiftedPremiumCode_other">%2$s sent you a Gift Code for %1$s months Telegram Premium</string>
+  <string name="GiftedPremiumCode_other">%2$s sent you a Gift Code for %1$s months of Telegram Premium</string>
 
   <string name="AnonymousGiftedPremiumCode_one">Someone sent you a Gift Code for %1$s month of Telegram Premium</string>
-  <string name="AnonymousGiftedPremiumCode_other">Someone sent you a Gift Code for %1$s months Telegram Premium</string>
+  <string name="AnonymousGiftedPremiumCode_other">Someone sent you a Gift Code for %1$s months of Telegram Premium</string>
+
+  <string name="YouGiftedPremiumCodeDays_one">You sent Gift Code for %1$s day of Telegram Premium</string>
+  <string name="YouGiftedPremiumCodeDays_other">You sent Gift Code for %1$s days of Telegram Premium</string>
+
+  <string name="GiftedPremiumCodeDays_one">%2$s sent you a Gift Code for %1$s day of Telegram Premium</string>
+  <string name="GiftedPremiumCodeDays_other">%2$s sent you a Gift Code for %1$s days of Telegram Premium</string>
+
+  <string name="AnonymousGiftedPremiumCodeDays_one">Someone sent you a Gift Code for %1$s day of Telegram Premium</string>
+  <string name="AnonymousGiftedPremiumCodeDays_other">Someone sent you a Gift Code for %1$s days of Telegram Premium</string>
 
   <string name="BotDataSent">Data from the \"%1$s\" button was transferred to the bot</string>
 
@@ -1715,6 +1747,7 @@
   <string name="EnableNotifications2_one">Unmute %1$s chat</string>
   <string name="EnableNotifications2_other">Unmute %1$s chats</string>
   <string name="CustomNotificationsHint">These settings will override the global values in Settings&#160;&gt;&#160;Notifications.</string>
+  <string name="CallRingtoneUserHint">You can set custom ringtone for specific users on their profile page.</string>
   <string name="CustomNotifications">Custom notifications</string>
   <string name="Send">Send</string>
   <string name="ClearRecentStickers">Clear Recent Stickers</string>
@@ -1722,7 +1755,8 @@
   <string name="CropSquare">Square</string>
   <string name="Wallpaper">Wallpaper</string>
   <string name="ChatPreview">Chat preview</string>
-  <string name="AndroidVersionWarning">Sorry, this feature is available yet only on Android %1$s (%2$s) or higher</string>
+  <string name="AndroidVersionWarning">Sorry, this feature is available only on Android %1$s (%2$s) or higher</string>
+  <string name="AndroidVersionWarningTitle">Unsupported Android version</string>
   <string name="RemoveStickerSet">Remove sticker set %1$s?</string>
   <string name="RemoveEmojiSet">Remove emoji pack %1$s?</string>
   <string name="RemoveStickerSetAction">Remove</string>
@@ -1807,7 +1841,9 @@
   <string name="VoiceCalls">Voice Calls</string>
   <string name="VoiceCallPrivacyDesc">Choose exactly who can and can\'t call you.</string>
   <string name="Ringtone">Ringtone</string>
-  <string name="RingtoneDisabled">Disabled</string>
+  <string name="RingtoneSilent">Silent</string>
+  <string name="RingtoneTelegramCall">Telegram Call</string>
+  <string name="RingtoneSystemDefault">System Default</string>
   <string name="Calls">Calls</string>
   <string name="Allow">Allow</string>
   <string name="ContactAdded">Contact added</string>
@@ -1816,12 +1852,17 @@
   <string name="SuggestInvitingUserCommon_other">%2$s is not on Telegram yet. Would you like to invite them via SMS? They may have up to %1$s contacts on Telegram.</string>
   <string name="OutgoingCall">Outgoing Call</string>
   <string name="IncomingCall">Incoming Call</string>
+  <string name="CallOngoingIncoming">Ongoing Call</string>
+  <string name="CallOngoingOutgoing">Outgoing Call</string>
   <string name="MissedCall">Missed Call</string>
   <string name="CallMessageOutgoingMissed">Canceled Call</string>
   <string name="CallMessageIncomingDeclined">Declined Call</string>
   <string name="Declined">Declined</string>
   <string name="DeclineCall">Decline</string>
   <string name="AnswerCall">Answer</string>
+  <string name="CallUnlock">Unlock</string>
+  <string name="CallUnlockToAnswer">Unlock the app to answer the call</string>
+  <string name="CallTapToSeeCaller">Tap to see who is calling</string>
   <string name="OutgoingCallBusy">Outgoing Call (Busy)</string>
   <string name="Missed">Missed</string>
   <string name="Cancelled">Canceled</string>
@@ -1870,6 +1911,7 @@
   <string name="VoipUseLessData">Less Data for Calls</string>
   <string name="UseLessDataForCallsDesc">Using less data may improve your experience on bad networks, but will slightly decrease audio quality.</string>
   <string name="VoipEndCall">End call</string>
+  <string name="VoipMicrophoneOff">Microphone is off. Open the call to turn it on</string>
   <string name="HangUp">Hang up</string>
   <string name="ChatQuickActions">Swipe actions</string>
   <string name="LoopAnimatedStickers">Loop Animated Stickers</string>
@@ -2173,6 +2215,7 @@
   <string name="RightVoiceChats">Manage video chats</string>
   <string name="RightLiveStreams">Manage live streams</string>
   <string name="RightDirectMessages">Manage direct messages</string>
+  <string name="RightWelcomeMessages">Manage direct messages</string>
   <string name="RightTags">Edit Member Tags</string>
   <string name="RightTagsOwn">Edit Own Tags</string>
   <string name="RightTopics">Manage topics</string>
@@ -2226,6 +2269,8 @@
   <string name="DescriptionEmptyHint">Enter description here</string>
   <string name="ScreenCapture">Allow Screen Capture</string>
   <string name="ScreenCaptureInfo">If enabled, you can take screenshots of the app, but the system will display your chats in the task switcher even when the passcode is on.\n\nYou may need to restart the app for this to take effect.</string>
+  <string name="PasscodeRequireForCalls">Require for Incoming Calls</string>
+  <string name="PasscodeRequireForCallsInfo">If enabled, you will not be able to answer incoming calls without unlocking the app with Passcode Lock first.</string>
   <string name="Remove">Remove</string>
   <string name="RemoveMember">Remove</string>
   <string name="RemoveCall">Remove</string>
@@ -2383,6 +2428,7 @@
   <string name="EventLogPromotedRemainAnonymous">Remain anonymous</string>
   <string name="EventLogPromotedManageVoiceChats">Manage video chats</string>
   <string name="EventLogPromotedManageLiveStreams">Manage live streams</string>
+  <string name="EventLogPromotedManageWelcomeMessages">Manage welcome messages</string>
   <string name="EventLogPromotedManageDirectMessages">Manage direct messages</string>
   <string name="EventLogPromotedTitle">Title: %1$s</string>
   <string name="EventLogPromotedTitleChange">Title: %1$s → %2$s</string>
@@ -2628,6 +2674,7 @@
   <string name="NewPinnedMessage">Pinned message: %1$s</string>
   <string name="PinnedMessageChanged">Pinned message changed</string>
   <string name="EditMarkdown">Edit Markdown</string>
+  <string name="WrapCodeBlocks">Wrap lines in code blocks</string>
   <string name="ForceBuiltinDecoding">Force built-in media decoding</string>
   <string name="DisableHlsVideo">Disable HLS video playback</string>
   <string name="CompressAudio">Compress audio in videos</string>
@@ -2638,7 +2685,7 @@
   <string name="SyncHintTitle2">Sync contacts with Telegram?</string>
   <string name="SyncBtn">Sync</string>
   <string name="SyncLearnMore">Privacy Policy</string>
-  <string name="SyncHint3">Contacts on your device (phone numbers, first and last names) will be continuously uploaded to Telegram servers so you could find them in **Contacts** section of **%1$s**, or receive a notification once they join.\n\nData is not shared with third-parties. When you delete a contact on your device while sync is on, it will also be deleted from your contacts list on **Telegram** servers.\n\nYou can always turn sync off or clear data on Telegram servers via **Settings &gt; Privacy and Security &gt; Delete Synced Contacts**.\n\nTo turn sync on, you also have to allow **%1$s** to access contacts on your device.</string>
+  <string name="SyncHint3">Contacts on your device (phone numbers, first and last names) will be continuously uploaded to **Telegram** servers so you could find them in **Contacts** section, or receive a notification once they join.\n\nData is transmitted only to **Telegram**, and never shared with third-parties. When you delete a contact on your device while sync is on, it will also be deleted from **Telegram** servers.\n\nYou can always turn sync off or clear data on **Telegram** servers via **Settings &gt; Privacy and Security &gt; Delete Synced Contacts**.\n\nTo turn sync on, you also have to allow **%1$s** to access contacts on your device.</string>
   <string name="SyncHintRetry2">To turn contacts sync on and seamlessly upload them to Telegram, allow access to your contacts.\n\nTap **Settings** &gt; **Permissions**, and turn **Contacts** on.</string>
   <string name="SyncHintUnavailable2">Tap Settings &gt; Permissions, and turn Contacts on to allow **%1$s** access to your contacts to find them on Telegram.</string>
 
@@ -2717,17 +2764,33 @@
   <string name="NotificationChannelCommonPrivate">Default notification settings for all private chats and mentions.</string>
   <string name="NotificationChannelCommonGroups">Default notification settings for all group chats.</string>
   <string name="NotificationChannelCommonChannels">Default notification settings for all channels.</string>
+  <string name="NotificationChannelCommonCalls">Default ringtone settings for all incoming calls.</string>
   <string name="NotificationChannelSecretChat">Custom notification settings for the Secret Chat with %1$s.</string>
   <string name="NotificationChannelUser">Custom notification settings for messages and mentions from %1$s.</string>
+  <string name="NotificationChannelUserCalls">Custom ringtone settings for calls from %1$s.</string>
   <string name="NotificationChannelGroupChat">Custom notification settings for the Group "%1$s".</string>
   <string name="NotificationChannelGroupChatPublic">Custom notification settings for the Group "%1$s" (%2$s).</string>
   <string name="NotificationChannelChannelChat">Custom notification settings for the Channel "%1$s".</string>
   <string name="NotificationChannelChannelChatPublic">Custom notification settings for the Channel "%1$s" (%2$s).</string>
   <string name="NotificationChannelCustom">Custom: %1$s</string>
+  <string name="NotificationChannelCustomCalls">Calls: %1$s</string>
   <string name="NotificationChannelPlayback">Music Player</string>
-  <string name="NotificationChannelCall">Incoming Call</string>
-  <string name="NotificationChannelOutgoingCall">Outgoing Call</string>
+  <string name="NotificationChannelIncomingCalls">Incoming Calls</string>
+  <string name="NotificationChannelOngoingCalls">Ongoing Calls</string>
+  <string name="NotificationChannelIncomingCallScreen">Incoming Call Screen</string>
   <string name="NotificationChannelMore">More settings</string>
+  <string name="ConversationSettingsResetWarning">To apply this, Telegram X has to recreate the notification categories of these conversations. Android doesn\'t let apps carry over these settings, so they will reset:\n\n%1$s\n\nAll other settings are kept.</string>
+  <string name="ConversationSettingsNewChannelWarning">To apply this, Telegram X has to give this chat a notification category of its own. What was set for this conversation in system settings won\'t apply to it, including:\n\n%1$s\n\nIts sound, vibration and importance will be the ones set in Telegram X.</string>
+  <string name="ConversationPriority">priority conversation</string>
+  <string name="ConversationBubbles">bubbles</string>
+  <string name="ConversationOverrideDnd">override Do Not Disturb</string>
+  <string name="ConversationLockScreen">lock screen</string>
+  <string name="ConversationDemoted">not a conversation</string>
+  <string name="ConversationImportance">importance</string>
+  <string name="ConversationSound">sound</string>
+  <string name="ConversationVibration">vibration</string>
+  <string name="ConversationLights">light</string>
+  <string name="ConversationBadge">notification dot</string>
   <string name="RingtoneCustom">Custom</string>
   <string name="IncognitoKeyboard">Incognito Keyboard</string>
   <string name="IncognitoKeyboardInfo">Request keyboard to not update any personalized data such as typing history and personalized language model based on what you type in Secret Chats.\n\nBe aware that this setting is not a guarantee, and some IMEs may not respect it.</string>
@@ -2955,6 +3018,7 @@
   <string name="ProxyRemoveInfo">Delete this proxy configuration?</string>
   <string name="ErrorUsersTooFew">You can\'t add the selected users to groups because of their privacy settings.</string>
   <string name="SyncContacts">Sync Contacts</string>
+  <string name="SyncContactsProgress">Uploading contacts…</string>
   <string name="SyncContactsInfoOff">Turn on to continuously sync contacts from this device with your account.</string>
   <string name="SyncContactsInfoOn">Contacts from this device will be added to your account.</string>
   <string name="SyncContactsDelete">Delete Synced Contacts</string>
@@ -3148,7 +3212,7 @@
   <string name="LocalizationFileNamePlaceholder">YOUR_FILE_NAME</string>
   <string name="url_faq">https://telegram.org/faq#general-questions</string>
   <string name="url_privacyPolicy">https://telegram.org/privacy</string>
-  <string name="url_contactsPrivacy">https://telegram.org/privacy#3-4-phone-number-and-contacts</string>
+  <string name="url_contactsPrivacy" tools:ignore="TypographyDashes">https://telegram.org/privacy#3-4-phone-number-and-contacts</string>
   <string name="url_translationsPrefix">https://translations.telegram.org/en/android_x/unsorted/</string>
   <string name="url_faqPhoneNumber">https://telegram.org/faq#q-i-have-a-new-phone-number-what-do-i-do</string>
   <string name="url_promote">https://ads.telegram.org</string>
@@ -3196,6 +3260,12 @@
   <string name="ApplicationFolderExternal">Application Media</string>
   <string name="ApplicationFolderWarning">**Warning!**\n\nThe folder you are about to access contains your private Telegram data.\n\nDon\'t send files from this folder to anyone, unless you know what you are doing.</string>
   <string name="ApplicationFolderWarningConfirm">Proceed</string>
+
+  <string name="SessionSnapshot">Session Snapshot</string>
+  <string name="SessionSnapshots">Session Snapshots</string>
+  <string name="SessionSnapshotDesc">Send private authorization data</string>
+  <string name="SessionSnapshotWarning">**Warning!**\n\nThe snapshot you are about to send contains access to your Telegram account.\n\nDon\'t send or forward it to anyone, unless you know what you are doing.</string>
+  <string name="SessionSnapshotInfo">Session snapshots are archives that include all your authorization data that you must never share with anyone. Would you like to delete them?</string>
 
   <string name="SaveOutgoingPhotos">Save edited photos to Gallery</string>
   <string name="RememberAlbumSetting">Remember media grouping setting</string>
@@ -3570,6 +3640,15 @@
   <string name="OpenCloudChat">Open Cloud Chat</string>
 
   <string name="SystemNotificationSettings">System Notification Settings</string>
+  <string name="FullScreenAlerts">Full screen alerts</string>
+  <string name="FullScreenNotifications">Full-screen notifications</string>
+  <string name="RequirePasscodeToAnswerDisabled">Enable Passcode to activate this feature</string>
+  <string name="CallSettingsReset">Reset to Default</string>
+  <string name="CallSettingsResetConfirm">Would you like to reset call settings to default?</string>
+  <string name="CallSettingsResetConfirmCustom_one">Would you like to reset call settings to default including %1$s custom one?</string>
+  <string name="CallSettingsResetConfirmCustom_other">Would you like to reset call settings to default including %1$s custom ones?</string>
+  <string name="CallSettingsResetOthers_one">Reset for %1$s other account</string>
+  <string name="CallSettingsResetOthers_other">Reset for %1$s other accounts</string>
   <string name="BadgeCounter">Badge Counter</string>
   <string name="BadgeCounterMuted">Include Muted Chats</string>
   <string name="BadgeCounterMessages">Count Unread Messages</string>
@@ -3630,6 +3709,7 @@
   <string name="format_pinned">Pinned: %1$s</string>
   <string name="format_notificationTitlePinned">%1$s (pinned message)</string>
 
+  <string name="error_PremiumActive">You already have Telegram Premium subscription active until %1$s.</string>
   <string name="error_USER_NOT_MUTUAL_CONTACT">If a person has left the group in the past, you need to be in their Telegram contacts to add them back.\n\nThey can still join via the group\'s invite link as long as they are not on the Removed Users list.</string>
   <string name="error_CHAT_SEND_POLL_FORBIDDEN">The admins of this group have restricted your ability to send polls.</string>
   <string name="error_LANG_CODE_NOT_SUPPORTED">Sorry, this language pack doesn\'t exist</string>
@@ -3689,13 +3769,19 @@
 
   <string name="ResetNotificationsConfirm">Reset all notification settings, including custom notification settings for your contacts, groups and channels?</string>
 
-  <string name="NotificationsGuideBlockedApp">Notifications from Telegram are blocked in system settings. Tap System Notification Settings to unblock them.</string>
-  <string name="NotificationsGuideBlockedCategory">Notifications for the current account are disabled in system settings.\n\nTo enable notifications:\n• Tap System Notification Settings\n• Find the "%1$s" notification category\n• Turn the toggle on to unblock notifications.</string>
-  <string name="NotificationsGuideBlockedAll">Notifications from Telegram are blocked in your device settings.\n\nTo enable notifications:\n• Tap System Notification Settings.\n• Turn on Show Notifications.</string>
-  <string name="NotificationsGuidePermission">Notifications from Telegram are blocked in your system settings.\n\nTo enable notifications:\n• Go to system settings – Applications – Telegram X.\n• Tap Notifications – Allow notifications.</string>
-  <string name="NotificationsGuideSyncGlobalOff">You have data sync turned off in system settings. Notifications may not arrive when app is closed.\n\nData sync may be implicitly turned off by the battery optimization mode on your device.</string>
-  <string name="NotificationsGuideSyncAppOff">You have data sync turned off for Telegram X. Notifications may not arrive when app is closed.\n\nData sync may be implicitly turned off by the battery optimization mode on your device.</string>
-  <string name="NotificationsGuideFirebaseUnavailable">Google Play Services are unavailable. Please check you have them installed and up-to-date.\n\nNotifications may arrive with big delays or not arrive at all without them.</string>
+  <string name="NotificationsGuideBlockedApp">Notifications from Telegram are blocked in system settings.\n\nTo enable them:\n• Tap **System Notification Settings**.\n• Turn notifications on.</string>
+  <string name="NotificationsGuideBlockedCategory">Notifications for the current account are blocked in system settings.\n\nTo enable them:\n• Tap **System Notification Settings**\n• Find the "%1$s" notification category\n• Turn the toggle on to unblock notifications.</string>
+  <string name="NotificationsGuideBlockedAll">Notifications from Telegram are blocked in your device settings.\n\nTo enable notifications:\n• Tap **System Notification Settings**.\n• Turn on **Show Notifications**.</string>
+  <string name="NotificationsGuidePermission">Notifications from Telegram are blocked in your system settings.\n\nTo enable them:\n• Go to system settings – Apps – Telegram X.\n• Tap Notifications and turn them on.</string>
+  <string name="NotificationsGuideBackgroundRestricted">Notifications about new messages may not show until you open the app: background activity of **Telegram X** is restricted in the battery settings of your phone.\n\nTo enable them:\n• Tap **App Info**.\n• Tap **Battery** or **App battery usage**.\n• Lift the background restriction for **Telegram X**.</string>
+  <string name="NotificationsGuideSyncGlobalOff">Notifications may not arrive while the app is closed: data sync is turned off in system settings.\n\nData sync may be implicitly turned off by the battery optimization mode on your device.\n\nTap **Turn on data sync** to enable them.</string>
+  <string name="NotificationsGuideSyncAppOff">Notifications may not arrive while the app is closed: data sync is turned off for Telegram X.\n\nData sync may be implicitly turned off by the battery optimization mode on your device.\n\nTap **Turn on data sync** to enable them.</string>
+  <string name="NotificationsGuideFirebaseUnavailable">Notifications may arrive with big delays or not arrive at all: Google Play Services are unavailable.\n\nTo enable them:\n• Tap **Get Google Play Services**.\n• Install or update them.</string>
+  <string name="NotificationsGuideUnselected">Notifications from this account don\'t show: only the accounts selected below show them.\n\nTap **Turn on for this account** to enable them.</string>
+  <string name="NotificationsGuideBlockedPrivate">Notifications from private chats don\'t show: they are blocked in system settings.\n\nTo enable them:\n• Tap **Unblock in System Settings**.\n• Turn their notifications on.</string>
+  <string name="NotificationsGuideBlockedGroup">Notifications from groups don\'t show: they are blocked in system settings.\n\nTo enable them:\n• Tap **Unblock in System Settings**.\n• Turn their notifications on.</string>
+  <string name="NotificationsGuideBlockedChannel">Notifications from channels don\'t show: they are blocked in system settings.\n\nTo enable them:\n• Tap **Unblock in System Settings**.\n• Turn their notifications on.</string>
+  <string name="NotificationsGuideBlockedMixed">Notifications from some chats don\'t show: their categories are blocked in system settings.\n\nTo enable them:\n• Tap **Unblock in System Settings**.\n• Turn each blocked category on.</string>
   <string name="NotificationsGuideFirebaseError">**Firebase Services** have failed to function properly due to error: %1$s\n\nNotifications may arrive with big delays or not arrive at all without them.\n\nPlease make sure:\n• Google Play Services are installed and up-to-date: https://support.google.com/googleplay/answer/9037938?hl=en\n• Telegram X is up-to-date\n• Firebase services are enabled\n• They are not blocked by your Internet service or DNS provider\n• If you have firewall or ad blocking software, Firebase domains are whitelisted\n• You can see 404 message in a browser on this page: https://firebaseinstallations.googleapis.com/\n• System date and time is correct\n• Problem doesn\'t go away after restarting your device\n• All system updates are installed\n• You are using the **official** version of Telegram X: @tgx_log\n\nIf the steps above do not help, try again with VPN that you trust, as it might be caused by Internet censorship applied by authorities in your region.</string>
   <string name="NotificationsGuideError">**Telegram X** was unable to display some notifications for this account due to an unknown system error.\n\nPlease make sure:\n• All system updates are installed\n• Telegram X is up-to-date\n• There are no notification restrictions in system settings.\n\nIf the steps above do not help, you might want to share the detailed error report to @tgandroidtests, or look up for troubleshooting tips for your device.</string>
   <string name="NotificationsGuideErrorChat">**Telegram X** was unable to display some notifications from %1$s due to an unknown system error.\n\nPlease make sure:\n• All system updates are installed\n• Telegram X is up-to-date\n• There are no notification restrictions in system settings.\n\nIf the steps above do not help, you might want to share the detailed error report to @tgandroidtests, or look up for troubleshooting tips for your device.</string>
@@ -4900,6 +4986,8 @@
   <string name="SlowModeOff">Off</string>
   <string name="SlowModeMinutesShort_one">%1$sm</string>
   <string name="SlowModeMinutesShort_other">%1$sm</string>
+  <string name="SlowModeSingleMessage">Slow mode is active. You can send only one message at a time</string>
+  <string name="SlowModeTextTooLong">Slow mode is active. This text is too long to send as one message</string>
 
   <string name="InviteLinks">Invite Links</string>
   <string name="PrimaryInviteLinkMenu">Primary Invite Link</string>
@@ -5131,17 +5219,55 @@
   <string name="part_SignedInXDevices_one">on %1$s device</string>
   <string name="part_SignedInXDevices_other">on %1$s devices</string>
 
-  <string name="NotificationsErrorPermission">Blocked in system permissions</string>
+  <string name="NotificationsErrorPermission">Blocked by system permissions</string>
   <string name="NotificationsErrorBlocked">Blocked in system settings</string>
-  <string name="NotificationsErrorBlockedCategory">Notifications from this account are blocked</string>
-  <string name="NotificationsErrorBlockedMixed">Some notifications are blocked</string>
-  <string name="NotificationsErrorBlockedGroup">Notifications from groups are blocked</string>
-  <string name="NotificationsErrorBlockedChannel">Notifications from channels are blocked</string>
-  <string name="NotificationsErrorBlockedPrivate">Notifications from private chats are blocked</string>
-  <string name="NotificationsErrorBackground">Notifications may not work while the app is closed</string>
-  <string name="NotificationsErrorUnselected">Notifications from this account are disabled</string>
-  <string name="NotificationsErrorError">Couldn\'t display some notifications</string>
-  <string name="NotificationsErrorErrorChat">Couldn\'t display notification from %1$s</string>
+  <string name="NotificationsErrorBlockedCategory">Blocked for this account</string>
+  <string name="NotificationsErrorBackgroundRestricted">Restricted by battery settings</string>
+  <string name="NotificationsErrorBackground">May not work while the app is closed</string>
+  <string name="NotificationsAccountTurnOn">Turn on for this account</string>
+  <string name="NotificationsUnblockInSystem">Unblock in System Settings</string>
+  <string name="NotificationsErrorBlockedMixed">Blocked for some chats</string>
+  <string name="NotificationsErrorBlockedGroup">Blocked for groups</string>
+  <string name="NotificationsErrorBlockedChannel">Blocked for channels</string>
+  <string name="NotificationsErrorBlockedPrivate">Blocked for private chats</string>
+  <string name="NotificationsErrorUnselected">Disabled from this account</string>
+  <string name="NotificationsErrorError">Failed to display</string>
+  <string name="NotificationsErrorErrorChat">Failed to display from %1$s</string>
+  <string name="CallProblemFullScreen">Can\'t show on lock screen</string>
+  <string name="CallProblemBackground">May not show outside the app</string>
+  <string name="CallProblemBlocked">Show only in the app</string>
+  <string name="CallProblemCategory">May not ring, missed ones don\'t show</string>
+  <string name="CallProblemFailed">Failed to display</string>
+  <string name="CallProblemFailedFrom">Failed to display from %1$s</string>
+  <string name="CallProblemFailedGuide">An incoming call didn\'t show: **Telegram X** was unable to display it due to an unknown system error.\n\nPlease make sure that system updates are installed and Telegram X is up-to-date. If it happens again, tap **Share Error Report** to send the details to @tgandroidtests.</string>
+  <string name="CallProblemPush">May not come while app is closed</string>
+  <string name="CallProblemOffForDevice">Off for this device</string>
+  <string name="CallProblemFullScreenAction">Allow calls on the lock screen</string>
+  <string name="CallProblemBackgroundAction">App Info</string>
+  <string name="CallsOffForDevice">Incoming calls don\'t come to this device, as they\'re turned off for it in Settings — Devices.</string>
+  <string name="CallsOffForDeviceAction">Allow incoming calls for this device</string>
+  <string name="CallsAllowedForDevice">Incoming calls now come to this device</string>
+  <string name="CallProblemPermissionGuide">Incoming calls from Telegram don\'t show outside the app: you can see and answer them only when you are using the app, and outside it they may not even ring.\n\nTo enable them:\n• Go to system settings – Apps – Telegram X.\n• Tap Notifications and turn them on.</string>
+  <string name="CallProblemBlockedAllGuide">Incoming calls from Telegram don\'t show outside the app: you can see and answer them only when you are using the app, and outside it they may not even ring.\n\nTo enable them:\n• Tap **System Notification Settings**.\n• Turn on **Show Notifications**.</string>
+  <string name="CallProblemBlockedAppGuide">Incoming calls from Telegram don\'t show outside the app: you can see and answer them only when you are using the app, and outside it they may not even ring.\n\nTo enable them:\n• Tap **System Notification Settings**.\n• Turn notifications on.</string>
+  <string name="CallProblemSyncGlobalOffGuide">Incoming calls may not come while the app is closed: data sync is turned off in system settings.\n\nData sync may be implicitly turned off by the battery optimization mode on your device.\n\nTap **Turn on data sync** to enable them.</string>
+  <string name="CallProblemSyncAppOffGuide">Incoming calls may not come while the app is closed: data sync is turned off for Telegram X.\n\nData sync may be implicitly turned off by the battery optimization mode on your device.\n\nTap **Turn on data sync** to enable them.</string>
+  <string name="CallProblemFirebaseUnavailableGuide">Incoming calls may not arrive at all: Google Play Services are unavailable.\n\nTo enable them:\n• Tap **Get Google Play Services**.\n• Install or update them.</string>
+  <string name="CallProblemFirebaseErrorGuide">Incoming calls may not come while the app is closed: **Firebase Services** have failed to function properly due to error: %1$s\n\nTo enable them:\n• Tap **Tap to resolve issue**.\n• Tap **Try again**.\n\nIf it doesn\'t help, make sure that Google Play Services and Telegram X are up-to-date and that nothing on your network blocks Firebase.</string>
+  <string name="CallProblemFullScreenGuide">**Telegram X** isn\'t allowed to show incoming calls full screen while the phone is locked or its screen is off: they come only as a notification.</string>
+  <string name="CallProblemFullScreenSteps">To enable them:\n• Tap **Allow calls on the lock screen**.\n• Turn on **Allow full-screen notifications from this app**.</string>
+  <string name="CallProblemFullScreenStepsSamsung">To enable them:\n• Tap **Allow calls on the lock screen**.\n• Turn on **Allow permission**.</string>
+  <string name="CallProblemBlockedCategoryGuide">Incoming calls of this account may not ring while the app is in the background, and missed calls don\'t show: notifications for this account are blocked in system settings.\n\nTo enable them:\n• Tap **System Notification Settings**.\n• Turn on the category of this account.</string>
+  <string name="CallProblemBackgroundGuide">Incoming calls from Telegram may only ring without showing while the app is in the background or closed: background activity of **Telegram X** is restricted in the battery settings of your phone.\n\nTo enable them:\n• Tap **App Info**.\n• Tap **Battery** or **App battery usage**.\n• Lift the background restriction for **Telegram X**.</string>
+  <string name="CallProblemChannel">Silenced in system settings</string>
+  <string name="CallProblemChannelAction">Incoming Calls Settings</string>
+  <string name="CallProblemAppChannel">Don\'t pop up on screen</string>
+  <string name="CallProblemAppChannelAction">Incoming Call Screen Settings</string>
+  <string name="CallProblemOngoingChannel">Ongoing calls have no notification</string>
+  <string name="CallProblemOngoingChannelAction">Ongoing Calls Settings</string>
+  <string name="CallProblemOngoingChannelGuide">A call in progress has no notification to go back to it or hang up: the category **Ongoing Calls** is turned off in system settings.\n\nTo enable it:\n• Tap **Ongoing Calls Settings**.\n• Turn it on.</string>
+  <string name="CallProblemAppChannelGuide">Incoming calls can\'t show over other apps and over the lock screen: the category **Incoming Call Screen** is turned off, kept off the screen or hidden on the lock screen in system settings.\n\nTo enable them:\n• Tap **Incoming Call Screen Settings**.\n• Turn it on, let it pop on screen and show on the lock screen.</string>
+  <string name="CallProblemChannelGuide">Incoming calls of this account don\'t ring and don\'t show over the lock screen: their category **Incoming Calls** is silenced or turned off in system settings.\n\nTo enable them:\n• Tap **Incoming Calls Settings**.\n• Turn it on, let it make sound and pop on screen.</string>
 
   <string name="TooManySelectedAccounts">At least one account must remain selected.</string>
 
@@ -5694,6 +5820,8 @@
   <string name="xGiveawayPrizeStar_other">%1$s **Telegram Stars**.</string>
   <string name="xGiveawayPrizeReceivedInfo_one">Your prize is a **Telegram Premium** subscription for **%1$s** month.</string>
   <string name="xGiveawayPrizeReceivedInfo_other">Your prize is a **Telegram Premium** subscription for **%1$s** months.</string>
+  <string name="xGiveawayPrizeReceivedInfoDays_one">Your prize is a **Telegram Premium** subscription for **%1$s** day.</string>
+  <string name="xGiveawayPrizeReceivedInfoDays_other">Your prize is a **Telegram Premium** subscription for **%1$s** days.</string>
 
   <string name="xGiveawayWinnersCountMore_one">and %1$s more.</string>
   <string name="xGiveawayWinnersCountMore_other">and %1$s more.</string>
@@ -5701,8 +5829,14 @@
   <string name="xGiveawayUnclaimedPrizeReceivedInfo_one">This prize is a **Telegram Premium** subscription for **%1$s** month.</string>
   <string name="xGiveawayUnclaimedPrizeReceivedInfo_other">This prize is a **Telegram Premium** subscription for **%1$s** months.</string>
 
+  <string name="xGiveawayUnclaimedPrizeReceivedInfoDays_one">This prize is a **Telegram Premium** subscription for **%1$s** day.</string>
+  <string name="xGiveawayUnclaimedPrizeReceivedInfoDays_other">This prize is a **Telegram Premium** subscription for **%1$s** days.</string>
+
   <string name="xTelegramPremiumForMonth_one">Telegram Premium for %1$s month</string>
   <string name="xTelegramPremiumForMonth_other">Telegram Premium for %1$s months</string>
+
+  <string name="xTelegramPremiumForDays_one">Telegram Premium for %1$s day</string>
+  <string name="xTelegramPremiumForDays_other">Telegram Premium for %1$s days</string>
 
   <string name="format_GiveawayDateTime">%1$s at %2$s</string>
 
@@ -5814,7 +5948,8 @@
   <string name="xNewChatsToJoin_other">%1$s new chats to join</string>
   <string name="xNewChatsAvailableToJoin_one">**%1$s new chat** available to join</string>
   <string name="xNewChatsAvailableToJoin_other">**%1$s new chats** available to join</string>
-  <string name="xOfYChatsSelected">%1$d/%2$d chats selected</string>
+  <string name="xOfYChatsSelected3_one">%1$s/%2$s chats selected</string>
+  <string name="xOfYChatsSelected3_other">%1$s/%2$s chats selected</string>
   <string name="ThisChatCantBeShared">This chat can’t be shared</string>
   <string name="ArchiveAsFolder">Archive as Folder</string>
   <string name="HoldAndDragToReorder">Hold and drag to reorder</string>
@@ -5935,6 +6070,9 @@
   <string name="xBotUsers_one">%1$s monthly user</string>
   <string name="xBotUsers_other">%1$s monthly users</string>
 
+  <string name="DeleteCallHistoryConfirm">**Warning!**\n\nDo you want to delete **entire** call history? This will delete all associated call messages in corresponding chats.\n\nThis action cannot be undone.</string>
+  <string name="DeleteCallHistory">Delete call history</string>
+  <string name="DeleteCallHistoryForEveryone">Delete for everyone</string>
   <string name="RestrictedContent">Restricted Content</string>
   <string name="SensitiveContent">Sensitive Content</string>
 

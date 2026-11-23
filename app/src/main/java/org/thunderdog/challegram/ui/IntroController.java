@@ -87,6 +87,7 @@ import java.util.List;
 
 import javax.microedition.khronos.egl.EGL10;
 import javax.microedition.khronos.egl.EGLConfig;
+import javax.microedition.khronos.egl.EGLContext;
 import javax.microedition.khronos.egl.EGLDisplay;
 import javax.microedition.khronos.opengles.GL10;
 
@@ -103,8 +104,8 @@ import me.vkryl.core.lambda.RunnableBool;
 
 @SuppressWarnings("JniMissingFunction")
 public class IntroController extends ViewController<Void> implements GLSurfaceView.EGLConfigChooser, GLSurfaceView.Renderer, ViewPager.OnPageChangeListener, Runnable, View.OnClickListener, View.OnLongClickListener, TdlibOptionListener, ConnectionListener, GlobalAccountListener {
-  public IntroController (Context context) {
-    super(context, null);
+  public IntroController (Context context, Tdlib tdlib) {
+    super(context, tdlib);
   }
 
   @Override
@@ -206,9 +207,64 @@ public class IntroController extends ViewController<Void> implements GLSurfaceVi
   }
 
   public static boolean isIntroAttemptedButFailed () {
-    if (Settings.instance().isIntroAttempted()) {
+    if (!introAttempted && Settings.instance().isIntroAttempted()) {
       Log.w("Not showing intro controller, because it has failed once");
       return true;
+    }
+    return false;
+  }
+
+  private static boolean hasDefaultGlConfig, hasDefaultGlConfigChecked;
+
+  public static boolean hasDefaultGlConfig () {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+      return true;
+    }
+    if (hasDefaultGlConfigChecked) {
+      return hasDefaultGlConfig;
+    }
+    boolean result = hasDefaultGlConfigImpl();
+    hasDefaultGlConfig = result;
+    hasDefaultGlConfigChecked = true;
+    return result;
+  }
+
+  private static boolean hasDefaultGlConfigImpl () {
+    try {
+      EGL10 egl = (EGL10) EGLContext.getEGL();
+      EGLDisplay display = egl.eglGetDisplay(EGL10.EGL_DEFAULT_DISPLAY);
+      boolean isRgb888 = Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1;
+      int[] spec = {
+        EGL10.EGL_RED_SIZE, isRgb888 ? 8 : 5,
+        EGL10.EGL_GREEN_SIZE, isRgb888 ? 8 : 6,
+        EGL10.EGL_BLUE_SIZE, isRgb888 ? 8 : 5,
+        EGL10.EGL_ALPHA_SIZE, 0,
+        EGL10.EGL_DEPTH_SIZE, 16,
+        EGL10.EGL_STENCIL_SIZE, 0,
+        EGL10.EGL_RENDERABLE_TYPE, 4 /*EGL_OPENGL_ES2_BIT*/, EGL10.EGL_NONE};
+      int[] version = new int[2];
+      int[] count = new int[1];
+      if (!egl.eglInitialize(display, version) || !egl.eglChooseConfig(display, spec, null, 0, count)) {
+        return false;
+      }
+      EGLConfig[] configs = new EGLConfig[count[0]];
+      if (!egl.eglChooseConfig(display, spec, configs, configs.length, count)) {
+        return false;
+      }
+      int[] value = new int[1];
+      for (int i = 0; i < Math.min(count[0], configs.length); i++) {
+        boolean isExactMatch = configs[i] != null;
+        for (int j = 0; j < 4 && isExactMatch; j++) {
+          final int attribute = spec[j * 2];
+          final int expectedValue = spec[j * 2 + 1];
+          isExactMatch = egl.eglGetConfigAttrib(display, configs[i], attribute, value) && value[0] == expectedValue;
+        }
+        if (isExactMatch) {
+          return true;
+        }
+      }
+    } catch (Throwable t) {
+      Log.i("Unable to check for config", t);
     }
     return false;
   }
@@ -237,7 +293,7 @@ public class IntroController extends ViewController<Void> implements GLSurfaceVi
 
     CharSequence info = Strings.buildMarkdown(new TdlibContext(context, getTdlib()), Lang.getString(languagePackInfo, R.string.LoginErrorLongConnecting), null);
     PopupLayout popupLayout = showOptions(info, ids.get(), strings.get(), null, icons.get(), (itemView, id) -> {
-      if (id == R.id.btn_done) {
+      if (id == R.id.btn_startMessaging) {
         // nothing to do?
       } else if (id == R.id.btn_help) {
         TdApi.NetworkType networkType = getTdlib().networkType();
@@ -270,7 +326,7 @@ public class IntroController extends ViewController<Void> implements GLSurfaceVi
         String text = Lang.getString(languagePackInfo,
           R.string.email_LoginTooLong_text,
 
-          BuildConfig.VERSION_NAME,
+          U.getVersionName(),
           languagePackInfo.id,
           Lang.getDuration((int) (getTdlib().timeSinceFirstConnectionAttemptMs() / 1000l)) + " (" + networkTypeStr + ")",
           TdlibManager.getSystemLanguageCode(),
@@ -1002,7 +1058,7 @@ public class IntroController extends ViewController<Void> implements GLSurfaceVi
     progressComponent = new ProgressComponent(UI.getContext(context), Screen.dp(3.5f));
     progressComponent.setAlpha(0f);
     progressComponent.setViewProvider(new SingleViewProvider(button));
-    button.setId(R.id.btn_done);
+    button.setId(R.id.btn_startMessaging);
     button.setPadding(0, 0, 0, Screen.dp(1f));
     button.setTypeface(Fonts.getRobotoMedium());
     button.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 17f);
@@ -1082,7 +1138,7 @@ public class IntroController extends ViewController<Void> implements GLSurfaceVi
   @Override
   public void onClick (View v) {
     final int viewId = v.getId();
-    if (viewId == R.id.btn_done) {
+    if (viewId == R.id.btn_startMessaging) {
       requestLogin(false);
     } else if (viewId == R.id.btn_cancel) {
       requestLogin(true);
@@ -1930,6 +1986,10 @@ public class IntroController extends ViewController<Void> implements GLSurfaceVi
     __setIntroBgColor(Theme.fillingColor());
 
     N.onSurfaceCreated();
+    // The renderer keeps its page for the whole process, e.g. from an intro of an activity that
+    // the system relaunched, so it takes the page of this intro
+    N.setPage(lastPosition);
+    N.setScrollOffset(calculateActualOffset(lastActualPosition));
   }
 
   private long currentDate = System.currentTimeMillis() - 1000;

@@ -14,9 +14,12 @@ package tgx.td.data
 
 import android.net.Uri
 import android.os.Build
+import androidx.media3.common.MimeTypes
+import androidx.media3.decoder.vp9.VpxLibrary
 import me.vkryl.core.parseLong
 import org.drinkless.tdlib.TdApi.AlternativeVideo
 import org.drinkless.tdlib.TdApi.Video
+import tgx.player.VideoDecoderSupport
 
 data class HlsPath(
   @JvmField val width: Int,
@@ -77,13 +80,34 @@ data class HlsVideo(
 
     @JvmStatic fun extractStreamId(uri: Uri): Long =
       parseLong(uri.schemeSpecificPart)
-  }
 
-  fun AlternativeVideo.isSupported(failOnUnknownCodec: Boolean): Boolean =
-    when (this.codec) {
+    @JvmStatic fun toRfc6381CodecString(codec: String?) = when (codec) {
+      "h264" -> "avc1"
+      "h265" -> "hvc1"
+      "av1" -> "av01"
+      "vp8" -> "vp08"
+      "vp9" -> "vp09"
+      else -> codec
+    }
+
+    @JvmStatic fun toSampleMimeType(codec: String?): String? =
+      MimeTypes.getMediaMimeType(toRfc6381CodecString(codec))
+
+    @JvmStatic fun isCodecSupported(
+      codec: String,
+      failOnUnknownCodec: Boolean
+    ) = when (codec.substringBefore(".")) {
       // https://developer.android.com/media/platform/supported-formats
-      "av1", "av01" -> Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q // TODO: bundle av1?
-      "h264" -> Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP
+      // AV1: Android 10
+      "av1", "av01" -> Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+      // h.264: Main profile guaranteed since Android M (6.0), baseline since Android Honeycomb (3.0)
+      "h264", "avc1", "avc3" -> Build.VERSION.SDK_INT >= Build.VERSION_CODES.HONEYCOMB
+      // h.265: Android L (5.0)
+      "h265", "hevc", "hvc1", "hev1" -> Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP
+      // VP9: Android KitKat (4.4)
+      "vp9", "vp09" -> Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT || VpxLibrary.isAvailable()
+      // VP8: Streamable only in Android 4.0 and above
+      "vp8", "vp08" -> Build.VERSION.SDK_INT >= Build.VERSION_CODES.ICE_CREAM_SANDWICH
       else -> if (failOnUnknownCodec) {
         error("Unexpected codec: $codec")
       } else {
@@ -91,32 +115,69 @@ data class HlsVideo(
       }
     }
 
+    fun AlternativeVideo.isSupported(failOnUnknownCodec: Boolean): Boolean =
+      isCodecSupported(codec, failOnUnknownCodec)
+
+    fun AlternativeVideo.isClaimedBy(
+      decoders: VideoDecoderSupport,
+      inHardware: Boolean,
+      failOnUnknownCodec: Boolean
+    ): Boolean {
+      val mimeType = toSampleMimeType(codec)
+      if (mimeType == null) {
+        if (failOnUnknownCodec) {
+          error("Unexpected codec: $codec")
+        }
+        return false
+      }
+      return decoders.claimsSize(mimeType, width, height, inHardware)
+    }
+  }
+
   fun AlternativeVideo.appendTo(b: StringBuilder) {
     val bandwidth: Int = if (this@HlsVideo.video.duration != 0) {
       (video.size.toDouble() / this@HlsVideo.video.duration.toDouble()).toInt() * 8
     } else {
       1000000
     }
-    b.append("#EXT-X-STREAM-INF:BANDWIDTH=${bandwidth},RESOLUTION=${width}x${height},CODECS=\"${codec}\"\n")
+    b.append("#EXT-X-STREAM-INF:BANDWIDTH=${bandwidth},RESOLUTION=${width}x${height},CODECS=\"${toRfc6381CodecString(codec)}\"\n")
     b.append("${HlsPath(this)}\n")
   }
 
-  fun multivariantPlaylistData(failOnUnknownCodec: Boolean): String {
+  fun multivariantPlaylistData(decoders: VideoDecoderSupport, failOnUnknownCodec: Boolean): String {
     val playlist = StringBuilder()
     playlist.append("#EXTM3U\n")
-    var videoCount = 0
-    for (alternativeVideo in alternativeVideos) {
-      if (alternativeVideo.isSupported(failOnUnknownCodec)) {
-        alternativeVideo.appendTo(playlist)
-        videoCount++
-      }
-    }
-    if (videoCount == 0 && alternativeVideos.isNotEmpty()) {
-      error("None of codecs supported: ${alternativeVideos.joinToString { it.codec }}")
+    for (alternativeVideo in playableVideos(decoders, failOnUnknownCodec)) {
+      alternativeVideo.appendTo(playlist)
     }
     playlist.append("#EXT-X-ENDLIST\n")
     return playlist.toString()
   }
+
+  fun playableVideos(
+    decoders: VideoDecoderSupport,
+    failOnUnknownCodec: Boolean
+  ): List<AlternativeVideo> {
+    val inHardware = alternativeVideos.filter {
+      it.isClaimedBy(decoders, inHardware = true, failOnUnknownCodec)
+    }
+    if (inHardware.isNotEmpty()) {
+      return inHardware
+    }
+    val byAnyDecoder = alternativeVideos.filter {
+      it.isClaimedBy(decoders, inHardware = false, failOnUnknownCodec)
+    }
+    return byAnyDecoder.ifEmpty {
+      alternativeVideos.filter {
+        it.isSupported(failOnUnknownCodec)
+      }
+    }
+  }
+
+  fun canReplaceOriginal(decoders: VideoDecoderSupport, isConnectedOrUpdating: Boolean): Boolean =
+    isConnectedOrUpdating && alternativeVideos.any {
+      it.isClaimedBy(decoders, inHardware = true, failOnUnknownCodec = false)
+    }
 
   override fun equals(other: Any?): Boolean {
     if (this === other) return true

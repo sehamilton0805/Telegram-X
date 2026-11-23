@@ -55,6 +55,7 @@ import org.thunderdog.challegram.theme.ThemeProperties;
 import org.thunderdog.challegram.theme.ThemeSet;
 import org.thunderdog.challegram.tool.Strings;
 import org.thunderdog.challegram.tool.UI;
+import org.thunderdog.challegram.unsorted.AppContext;
 import org.thunderdog.challegram.unsorted.Settings;
 import org.xmlpull.v1.XmlSerializer;
 
@@ -69,6 +70,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -891,7 +893,7 @@ public final class TdlibFileGenerationManager {
             "import androidx.annotation.ColorInt;\n\n");
           b.append("public final class Theme").append(info.name).append(" extends ThemeBase {\n");
           b.append("  public Theme").append(info.name).append(" () {\n");
-          b.append("    super(ThemeId.").append(info.name.toUpperCase()).append(");\n");
+          b.append("    super(ThemeId.").append(info.name.toUpperCase(Locale.ROOT)).append(");\n");
           b.append("  }\n");
           ThemeDelegate base = ThemeSet.getBuiltinTheme(ThemeId.BLUE);
           if (!info.properties.isEmpty()) {
@@ -1036,7 +1038,7 @@ public final class TdlibFileGenerationManager {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && maxSize <= BIG_THUMB_RESOLUTION && info.getCropState() == null && info.getPaintState() == null) {
       android.graphics.ImageDecoder.Source source;
       if (uri != null) {
-        source = android.graphics.ImageDecoder.createSource(UI.getAppContext().getContentResolver(), uri);
+        source = android.graphics.ImageDecoder.createSource(AppContext.get().getContentResolver(), uri);
       } else {
         source = android.graphics.ImageDecoder.createSource(new File(originalPath));
       }
@@ -1380,7 +1382,7 @@ public final class TdlibFileGenerationManager {
         // int rotation = ImageReader.getRotation(originalPath);
         android.graphics.ImageDecoder.Source source;
         if (uri != null) {
-          source = android.graphics.ImageDecoder.createSource(UI.getAppContext().getContentResolver(), uri);
+          source = android.graphics.ImageDecoder.createSource(AppContext.get().getContentResolver(), uri);
         } else {
           source = android.graphics.ImageDecoder.createSource(new File(originalPath));
         }

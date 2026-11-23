@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   compile:
-    name: Compile latestArm64Release sources
+    name: Compile latestRelease sources
     runs-on: ubuntu-22.04
     timeout-minutes: 120
     permissions:
@@ -31,7 +31,7 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: '25'
 
       - name: Install dependencies
         run: |
@@ -63,7 +63,7 @@ jobs:
             echo "key.password=$KEY_PASSWORD"
           } > "$RUNNER_TEMP/signing/keystore.properties"
 
-      - name: Configure project (native dependencies skipped)
+      - name: Configure project
         env:
           TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
           TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
@@ -74,12 +74,11 @@ jobs:
         run: |
           export TERM=xterm
           export KEYSTORE_FILE="$RUNNER_TEMP/signing/keystore.properties"
-          # Java and Kotlin sources compile without ffmpeg and libvpx: their builds are skipped
-          sed -i 's/^build-vpx-impl.sh$/echo "libvpx skipped: compile check"/' scripts/setup.sh
-          sed -i 's/^build-ffmpeg-impl.sh$/echo "ffmpeg skipped: compile check"/' scripts/setup.sh
+          # Нативные библиотеки (ffmpeg, libvpx, tlottie) собирают отдельные задачи Gradle, компиляции Java они
+          # не нужны. Конфигурация требует только путь rust.dir, его пишет setup-properties.sh из rustup
           bash scripts/setup.sh
           # No Firebase plugin and no token validation: nothing is shipped from here
           echo "app.experimental=true" >> local.properties
 
       - name: Compile Java and Kotlin
-        run: ./gradlew :app:compileLatestArm64ReleaseJavaWithJavac --stacktrace --no-daemon
+        run: ./gradlew :app:compileLatestReleaseJavaWithJavac -Pabi=arm64 --stacktrace --no-daemon

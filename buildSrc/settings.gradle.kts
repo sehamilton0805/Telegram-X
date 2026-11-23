@@ -1,4 +1,4 @@
-@file:Suppress("UnstableApiUsage")
+@file:Suppress("UnstableApiUsage", "AvoidApplyPluginMethod")
 
 apply(from = "${rootDir.parentFile}/properties.gradle.kts")
 
@@ -19,3 +19,5 @@ dependencyResolutionManagement {
 		}
 	}
 }
+
+includeBuild("../vkryl/annotation")

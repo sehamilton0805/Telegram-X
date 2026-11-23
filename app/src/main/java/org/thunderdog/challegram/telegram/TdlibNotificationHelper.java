@@ -14,7 +14,6 @@
  */
 package org.thunderdog.challegram.telegram;
 
-import android.annotation.TargetApi;
 import android.content.Context;
 import android.os.Build;
 import android.service.notification.StatusBarNotification;
@@ -22,6 +21,7 @@ import android.service.notification.StatusBarNotification;
 import androidx.annotation.AnyThread;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.annotation.RequiresApi;
 import androidx.core.app.NotificationManagerCompat;
 
 import org.drinkless.tdlib.TdApi;
@@ -29,6 +29,7 @@ import org.thunderdog.challegram.Log;
 import org.thunderdog.challegram.TDLib;
 import org.thunderdog.challegram.config.Config;
 import org.thunderdog.challegram.tool.UI;
+import org.thunderdog.challegram.unsorted.AppContext;
 import org.thunderdog.challegram.unsorted.Passcode;
 import org.thunderdog.challegram.unsorted.Settings;
 
@@ -136,7 +137,7 @@ public class TdlibNotificationHelper implements Iterable<TdlibNotificationGroup>
   }
 
   public void abortCancelableOperations () {
-    Context context = UI.getAppContext();
+    Context context = AppContext.get();
     style.cancelPendingMediaPreviewDownloads(context, this);
   }
 
@@ -165,6 +166,7 @@ public class TdlibNotificationHelper implements Iterable<TdlibNotificationGroup>
         rebuild();
       }
     }
+    retainIcons();
     reconcileSystemTray("active notifications restored");
   }
 
@@ -179,7 +181,7 @@ public class TdlibNotificationHelper implements Iterable<TdlibNotificationGroup>
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
       return;
     }
-    android.app.NotificationManager systemManager = (android.app.NotificationManager) UI.getAppContext().getSystemService(Context.NOTIFICATION_SERVICE);
+    android.app.NotificationManager systemManager = (android.app.NotificationManager) AppContext.get().getSystemService(Context.NOTIFICATION_SERVICE);
     if (systemManager == null) {
       return;
     }
@@ -384,9 +386,11 @@ public class TdlibNotificationHelper implements Iterable<TdlibNotificationGroup>
   public boolean isEmpty () {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
       long accountUserId = tdlib.myUserId(true);
-      if (accountUserId != 0) {
+      // Only channels made already: this makes none, e.g. when the data of an account that logs
+      // out is dropped and its channels are deleted
+      TdlibNotificationChannelGroup channelGroup = tdlib.notifications().getExistingChannelCache();
+      if (accountUserId != 0 && channelGroup != null) {
         try {
-          TdlibNotificationChannelGroup channelGroup = tdlib.notifications().getChannelCache();
           for (TdlibNotificationGroup group : this) {
             if (channelGroup.getChannel(group, false) != null)
               return false;
@@ -412,7 +416,7 @@ public class TdlibNotificationHelper implements Iterable<TdlibNotificationGroup>
     return group != null && !group.isEmpty() && !group.isHidden() ? group : null;
   }
 
-  @TargetApi(Build.VERSION_CODES.O)
+  @RequiresApi(Build.VERSION_CODES.O)
   public String findCommonChannelId (int category) throws TdlibNotificationChannelGroup.ChannelCreationFailureException {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
       TdlibNotificationChannelGroup channelGroup = tdlib.notifications().getChannelCache();
@@ -529,6 +533,7 @@ public class TdlibNotificationHelper implements Iterable<TdlibNotificationGroup>
       if (group.matchesCategory(category))
         group.markAsHidden(TdlibNotificationGroup.HIDE_REASON_GLOBAL);
     }
+    retainIcons();
   }
 
   public void onHide (TdlibNotificationExtras extras) {
@@ -538,6 +543,7 @@ public class TdlibNotificationHelper implements Iterable<TdlibNotificationGroup>
     } else {
       tdlib.settings().setNotificationGroupData(extras.notificationGroupId, extras.maxNotificationId, 0);
     }
+    retainIcons();
   }
 
   public void onDropNotificationData (boolean hideAll) {
@@ -559,6 +565,7 @@ public class TdlibNotificationHelper implements Iterable<TdlibNotificationGroup>
     if (!hideAll && update) {
       rebuild();
     }
+    retainIcons();
   }
 
   public long findSingleChatId () {
@@ -603,31 +610,34 @@ public class TdlibNotificationHelper implements Iterable<TdlibNotificationGroup>
   // Impl
 
   private void displayNotificationGroup (@NonNull TdlibNotificationGroup group, boolean needNotification, long notificationSettingsChatId) {
-    Context context = UI.getAppContext();
+    Context context = AppContext.get();
     int badgeCount = tdlib.getUnreadBadgeCount();
     boolean allowPreview = allowNotificationPreview();
     TdlibNotificationSettings settings = needNotification && !group.isHidden() ? new TdlibNotificationSettings(tdlib, notificationSettingsChatId, group) : null;
     style.displayNotificationGroup(context, this, badgeCount, allowPreview, group, settings);
     tdlib.context().setHavePendingNotifications(tdlib.id(), true);
+    retainIcons();
   }
 
   private void hideNotificationGroup (@NonNull TdlibNotificationGroup group) {
-    Context context = UI.getAppContext();
+    Context context = AppContext.get();
     int badgeCount = tdlib.getUnreadBadgeCount();
     boolean allowPreview = allowNotificationPreview();
     style.hideNotificationGroup(context, this, badgeCount, allowPreview, group);
     tdlib.context().setHavePendingNotifications(tdlib.id(), !isEmpty());
+    retainIcons();
   }
 
   private void rebuild (@Nullable TdApi.NotificationSettingsScope scope, long specificChatId, int specificGroupId) {
     final boolean haveNotifications = !isEmpty();
     if (haveNotifications) {
-      Context context = UI.getAppContext();
+      Context context = AppContext.get();
       int badgeCount = tdlib.getUnreadBadgeCount();
       boolean allowPreview = allowNotificationPreview();
       style.rebuildNotificationsSilently(context, this, badgeCount, allowPreview, scope, specificChatId, specificGroupId);
     }
     tdlib.context().setHavePendingNotifications(tdlib.id(), haveNotifications);
+    retainIcons();
   }
 
   public void rebuild () {
@@ -644,6 +654,28 @@ public class TdlibNotificationHelper implements Iterable<TdlibNotificationGroup>
 
   public void rebuildGroup (int groupId) {
     rebuild(null, 0, groupId);
+  }
+
+  private void retainIcons () {
+    // Muted groups keep their icons while mentions or pinned messages can still come there
+    if (!Config.REUSE_NOTIFICATION_ICONS) {
+      return;
+    }
+    final Set<Long> chatIds = new HashSet<>();
+    for (TdlibNotificationGroup group : this) {
+      final long chatId = group.getChatId();
+      if (canNotify(chatId)) {
+        chatIds.add(chatId);
+      }
+    }
+    tdlib.context().notificationIcons().retainChats(tdlib.id(), chatIds);
+  }
+
+  private boolean canNotify (long chatId) {
+    final TdlibNotificationManager notifications = tdlib.notifications();
+    return tdlib.chatNotificationsEnabled(chatId) || (tdlib.isMultiChat(chatId) && !(
+      notifications.areMentionsDisabled(chatId) && notifications.arePinnedMessagesDisabled(chatId)
+    ));
   }
 
   public void onChatOpened (long chatId) {

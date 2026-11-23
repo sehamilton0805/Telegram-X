@@ -5,10 +5,6 @@ import android.animation.AnimatorListenerAdapter;
 import android.content.Context;
 import android.graphics.drawable.Drawable;
 import android.os.Build;
-import android.transition.ChangeBounds;
-import android.transition.Fade;
-import android.transition.TransitionManager;
-import android.transition.TransitionSet;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.FrameLayout;
@@ -32,6 +28,7 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.Locale;
 
+@SuppressWarnings("SimpleDateFormat")
 public class LegendSignatureView extends FrameLayout {
 
     public boolean isTopHourChart;
@@ -127,13 +124,13 @@ public class LegendSignatureView extends FrameLayout {
         int n = holdes.length;
         if (animateChanges) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
-                TransitionSet transition = new TransitionSet();
+                android.transition.TransitionSet transition = new android.transition.TransitionSet();
                 transition.
-                        addTransition(new Fade(Fade.OUT).setDuration(100)).
-                        addTransition(new ChangeBounds().setDuration(150)).
-                        addTransition(new Fade(Fade.IN).setDuration(100));
-                transition.setOrdering(TransitionSet.ORDERING_SEQUENTIAL);
-                TransitionManager.beginDelayedTransition(this, transition);
+                        addTransition(new android.transition.Fade(android.transition.Fade.OUT).setDuration(100)).
+                        addTransition(new android.transition.ChangeBounds().setDuration(150)).
+                        addTransition(new android.transition.Fade(android.transition.Fade.IN).setDuration(100));
+                transition.setOrdering(android.transition.TransitionSet.ORDERING_SEQUENTIAL);
+              android.transition.TransitionManager.beginDelayedTransition(this, transition);
             }
         }
 
@@ -208,13 +205,13 @@ public class LegendSignatureView extends FrameLayout {
         float num_ = v;
         int count = 0;
         if (v < 10_000) {
-            return String.format("%d", v);
+            return String.format(Locale.ROOT, "%d", v);
         }
         while (num_ >= 10_000 && count < ChartHorizontalLinesData.s.length - 1) {
             num_ /= 1000;
             count++;
         }
-        return String.format("%.2f", num_) + ChartHorizontalLinesData.s[count];
+        return String.format(Locale.ROOT, "%.2f", num_) + ChartHorizontalLinesData.s[count];
     }
 
 

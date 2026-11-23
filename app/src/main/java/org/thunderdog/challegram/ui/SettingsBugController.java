@@ -16,6 +16,7 @@ package org.thunderdog.challegram.ui;
 
 import android.annotation.SuppressLint;
 import android.content.Context;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.SystemClock;
 import android.util.SparseIntArray;
@@ -35,6 +36,7 @@ import org.thunderdog.challegram.R;
 import org.thunderdog.challegram.U;
 import org.thunderdog.challegram.component.base.SettingView;
 import org.thunderdog.challegram.config.Config;
+import org.thunderdog.challegram.config.Device;
 import org.thunderdog.challegram.core.Background;
 import org.thunderdog.challegram.core.Lang;
 import org.thunderdog.challegram.data.TD;
@@ -43,11 +45,11 @@ import org.thunderdog.challegram.navigation.DoubleHeaderView;
 import org.thunderdog.challegram.navigation.SettingsWrap;
 import org.thunderdog.challegram.navigation.SettingsWrapBuilder;
 import org.thunderdog.challegram.navigation.ViewController;
+import org.thunderdog.challegram.telegram.CallProblems;
 import org.thunderdog.challegram.telegram.GlobalTokenStateListener;
 import org.thunderdog.challegram.telegram.Tdlib;
 import org.thunderdog.challegram.telegram.TdlibAccount;
 import org.thunderdog.challegram.telegram.TdlibManager;
-import org.thunderdog.challegram.telegram.TdlibNotificationUtils;
 import org.thunderdog.challegram.telegram.TdlibUi;
 import org.thunderdog.challegram.theme.ColorId;
 import org.thunderdog.challegram.theme.PorterDuffColorId;
@@ -56,6 +58,7 @@ import org.thunderdog.challegram.tool.Screen;
 import org.thunderdog.challegram.tool.Strings;
 import org.thunderdog.challegram.tool.UI;
 import org.thunderdog.challegram.ui.camera.CameraController;
+import org.thunderdog.challegram.unsorted.DeviceTokenRetrieverInstance;
 import org.thunderdog.challegram.unsorted.Settings;
 import org.thunderdog.challegram.unsorted.Test;
 import org.thunderdog.challegram.util.AppUpdater;
@@ -63,7 +66,6 @@ import org.thunderdog.challegram.util.Crash;
 import org.thunderdog.challegram.util.StringList;
 import org.thunderdog.challegram.v.CustomRecyclerView;
 import org.thunderdog.challegram.voip.VoIP;
-import org.thunderdog.challegram.voip.VoIPController;
 import org.thunderdog.challegram.widget.BetterChatView;
 import org.thunderdog.challegram.widget.MaterialEditTextGroup;
 
@@ -173,7 +175,7 @@ public class SettingsBugController extends RecyclerViewController<SettingsBugCon
     }
     switch (section) {
       case Section.MAIN:
-        return BuildConfig.VERSION_NAME;
+        return U.getVersionName();
       case Section.UTILITIES:
         return Lang.getString(R.string.TestMode);
       case Section.PUSH:
@@ -521,7 +523,7 @@ public class SettingsBugController extends RecyclerViewController<SettingsBugCon
               break;
           }
         } else if (itemId == R.id.btn_secret_pushConfig) {
-          String configuration = TdlibNotificationUtils.getDeviceTokenRetriever().getConfiguration();
+          String configuration = DeviceTokenRetrieverInstance.get().getConfiguration();
           view.setData(!StringUtils.isEmpty(configuration) ? configuration : "Unavailable");
         } else if (itemId == R.id.btn_secret_appFingerprint) {
           view.setData(U.getApkFingerprint("SHA1"));
@@ -868,6 +870,14 @@ public class SettingsBugController extends RecyclerViewController<SettingsBugCon
             items.add(new ListItem(ListItem.TYPE_SEPARATOR_FULL));
           items.add(new ListItem(ListItem.TYPE_RADIO_SETTING, R.id.btn_secret_disableNetwork, 0, "Force disable network", Settings.instance().forceDisableNetwork()));
         }
+        if (testerLevel >= Tdlib.TesterLevel.ADMIN &&
+          Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+          if (items.size() > initialSize) {
+            items.add(new ListItem(ListItem.TYPE_SEPARATOR_FULL));
+          }
+          items.add(new ListItem(ListItem.TYPE_SETTING, R.id.btn_fullScreenAlerts, 0,
+            Device.IS_SAMSUNG ? R.string.FullScreenAlerts : R.string.FullScreenNotifications));
+        }
         if (Config.QR_AVAILABLE) {
           if (testerLevel >= Tdlib.TesterLevel.ADMIN || Settings.instance().needDisableQrProcessing()) {
             if (items.size() > initialSize)
@@ -929,8 +939,6 @@ public class SettingsBugController extends RecyclerViewController<SettingsBugCon
           items.add(new ListItem(ListItem.TYPE_SETTING, R.id.btn_test_crash4, 0, "Crash app (method 4, native direct)", false));
           items.add(new ListItem(ListItem.TYPE_SEPARATOR_FULL));
           items.add(new ListItem(ListItem.TYPE_SETTING, R.id.btn_test_crashDirect, 0, "Crash app (default)", false));
-          items.add(new ListItem(ListItem.TYPE_SEPARATOR_FULL));
-          items.add(new ListItem(ListItem.TYPE_SETTING, R.id.btn_test_crashDirectNative, 0, "Crash app (native)", false));
         }
         items.add(new ListItem(ListItem.TYPE_SHADOW_BOTTOM));
         break;
@@ -1193,7 +1201,7 @@ public class SettingsBugController extends RecyclerViewController<SettingsBugCon
         UI.copyText(toHumanRepresentation(tdlib.context().getToken()), R.string.CopiedText);
       }
     } else if (viewId == R.id.btn_secret_pushConfig) {
-      String configuration = TdlibNotificationUtils.getDeviceTokenRetriever().getConfiguration();
+      String configuration = DeviceTokenRetrieverInstance.get().getConfiguration();
       if (!StringUtils.isEmpty(configuration)) {
         UI.copyText(configuration, R.string.CopiedText);
       }
@@ -1215,7 +1223,6 @@ public class SettingsBugController extends RecyclerViewController<SettingsBugCon
         for (String version : versions) {
           items.add(new ListItem(ListItem.TYPE_CHECKBOX_OPTION, viewId, 0, version, !VoIP.isForceDisabled(version)).setStringValue(version));
         }
-        builder.addHeaderItem("Disabling all tgcalls versions enables libtgvoip " + VoIPController.getVersion() + " without tgcalls wrapper.");
       } else {
         int index = 0;
         int[] options = VoIP.getAllDebugOptions();
@@ -1288,6 +1295,8 @@ public class SettingsBugController extends RecyclerViewController<SettingsBugCon
       Settings.instance().forceRevokeAllFeaturePrompts();
     } else if (viewId == R.id.btn_secret_forceTdlibRestarts) {
       TdlibManager.instance().setForceTdlibRestarts(adapter.toggleView(v));
+    } else if (viewId == R.id.btn_fullScreenAlerts) {
+      CallProblems.openSettings(context, CallProblems.Type.FULL_SCREEN_INTENT_DENIED);
     } else if (viewId == R.id.btn_secret_forceTcpInCalls) {
       Settings.instance().setForceTcpInCalls(adapter.toggleView(v));
     } else if (viewId == R.id.btn_test_database) {
@@ -1313,8 +1322,6 @@ public class SettingsBugController extends RecyclerViewController<SettingsBugCon
       Tracer.test3("[SUCCESS] INDIRECT NATIVE " + MathUtils.random(0, 10000));
     } else if (viewId == R.id.btn_test_crash4) {
       Tracer.test4("[SUCCESS] DIRECT NATIVE " + -MathUtils.random(0, 10000));
-    } else if (viewId == R.id.btn_test_crashDirectNative) {
-      Tracer.test5("[SUCCESS] DIRECT THROW " + -MathUtils.random(0, 10000));
     } else if (viewId == R.id.btn_test_crashDirect) {
       throw new RuntimeException("This is a default test");
     } else if (viewId == R.id.btn_secret_dropHidden) {

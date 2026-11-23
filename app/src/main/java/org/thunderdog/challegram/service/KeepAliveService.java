@@ -34,7 +34,7 @@ import org.thunderdog.challegram.telegram.Tdlib;
 import org.thunderdog.challegram.telegram.TdlibAccount;
 import org.thunderdog.challegram.telegram.TdlibManager;
 import org.thunderdog.challegram.tool.Intents;
-import org.thunderdog.challegram.tool.UI;
+import org.thunderdog.challegram.unsorted.AppContext;
 import org.thunderdog.challegram.unsorted.Settings;
 
 import java.util.ArrayList;
@@ -59,7 +59,7 @@ public class KeepAliveService extends Service {
 
   @Override
   public int onStartCommand (Intent intent, int flags, int startId) {
-    UI.initApp(getApplicationContext());
+    AppContext.init(getApplicationContext());
     if (!Settings.instance().needKeepAliveService()) {
       releaseReferences();
       stopForeground(true);
