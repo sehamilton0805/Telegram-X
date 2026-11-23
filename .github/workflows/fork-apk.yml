@@ -179,9 +179,10 @@ jobs:
               --notes "Automated fork build. Commit: ${{ github.sha }}" \
               --latest
           else
-            # Сборка с рабочей ветки: пре-релиз для проверки, «latest» остаётся за веткой fork
+            # Сборка с рабочей ветки: пре-релиз для проверки, «latest» остаётся за веткой fork.
+            # Без --target, как и у релизов ветки fork: тег на коммит рабочей ветки GitHub токену воркфлоу
+            # может не дать поставить (HTTP 403 в tdlib-build.yml 23.11); ветка и коммит записаны в названии
             gh release create "$TAG" "Telegram-X-RG-$TAG-$SHORT_SHA.apk" \
-              --target "${{ github.sha }}" \
               --title "Telegram X RG $TAG pre-release (${{ github.ref_name }}, $SHORT_SHA)" \
               --notes "Pre-release build of branch ${{ github.ref_name }} for testing. Commit: ${{ github.sha }}" \
               --prerelease --latest=false

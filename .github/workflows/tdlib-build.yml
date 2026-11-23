@@ -135,6 +135,15 @@ jobs:
           (cd out && sha256sum * > SHA256SUMS && cat SHA256SUMS)
           echo "sha256=$(sha256sum out/libtdjni-arm64-v8a.so | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
 
+      # Библиотека остаётся артефактом прогона: если шаг релиза упадёт, её не придётся собирать заново
+      - name: Upload library
+        uses: actions/upload-artifact@v4
+        with:
+          name: libtdjni-arm64-v8a
+          path: out/*
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Release (prerelease)
         env:
           GH_TOKEN: ${{ github.token }}
@@ -144,8 +153,11 @@ jobs:
           set -euo pipefail
           TAG="tdlib-${TD_COMMIT:0:7}-r${{ github.run_number }}"
           [[ "${{ github.run_attempt }}" == "1" ]] || TAG="$TAG-a${{ github.run_attempt }}"
-          gh release create "$TAG" --prerelease --target "$GITHUB_SHA" --title "TDLib ${TD_COMMIT:0:7} patched (arm64)" \
-            --notes "tdlib/td@${TD_COMMIT} + tdlib-patches/*. arm64-v8a only, android-33, c++_static, RelWithDebInfo (stripped + .debug)." out/*
+          # Без --target: тег релиза встаёт на ветку по умолчанию, как у релизов build-NN. Тег на коммит рабочей
+          # ветки GitHub токену воркфлоу поставить не дал (HTTP 403, прогон 23.11), а библиотека от коммита тега
+          # не зависит: из какого коммита взяты патчи, записано в описании релиза
+          gh release create "$TAG" --prerelease --title "TDLib ${TD_COMMIT:0:7} patched (arm64)" \
+            --notes "tdlib/td@${TD_COMMIT} + tdlib-patches/* of ${GITHUB_REF_NAME}@${GITHUB_SHA:0:7}. arm64-v8a only, android-33, c++_static, RelWithDebInfo (stripped + .debug)." out/*
           {
             echo "td_commit=$TD_COMMIT"
             echo "release_tag=$TAG"
