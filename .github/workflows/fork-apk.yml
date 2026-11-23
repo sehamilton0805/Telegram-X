@@ -211,7 +211,10 @@ jobs:
           # Подпись: тем же ключом, что и прежние сборки (он в секретах), иначе Android не поставит APK поверх
           # установленного. Не удалось получить отпечатки - это предупреждение, а не отказ
           APKSIGNER=$(find "$ANDROID_SDK_ROOT/build-tools" -name apksigner -type f | sort -V | tail -1)
-          APK_CERT=$("$APKSIGNER" verify --print-certs "$APK" 2>/dev/null | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1 || true)
+          SIGNERS=$("$APKSIGNER" verify --print-certs "$APK" 2>&1 || true)
+          APK_CERT=$(sed -n 's/^.*certificate SHA-256 digest: //p' <<< "$SIGNERS" | head -1 || true)
+          # Формат вывода apksigner меняется от версии к версии: если отпечаток не нашёлся, вывод остаётся в журнале
+          [[ -n "$APK_CERT" ]] || head -20 <<< "$SIGNERS"
           KEY_CERT=$(keytool -list -keystore "$RUNNER_TEMP/signing/tgx-fork.p12" -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" 2>/dev/null | sed -n 's/^Certificate fingerprint (SHA-256): //p' | tr -d ':' | tr 'A-F' 'a-f' | head -1 || true)
           if [[ -z "$APK_CERT" || -z "$KEY_CERT" ]]; then
             echo "::warning::could not compare the APK signer with the keystore (apk: '$APK_CERT', keystore: '$KEY_CERT')"
